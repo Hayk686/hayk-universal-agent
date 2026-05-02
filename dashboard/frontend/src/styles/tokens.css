@@ -1,0 +1,14 @@
+/**
+ * Design tokens — map Lovable / design handoff to these variables
+ * so the shell keeps a stable surface when swapping components.
+ */
+:root {
+  --hayk-shell-sidebar-width: 14rem;
+  --hayk-radius: 0.75rem;
+  --hayk-font-sans: system-ui, "Segoe UI", Roboto, sans-serif;
+  --hayk-font-mono: ui-monospace, "Cascadia Code", monospace;
+}
+
+[data-app="hayk-dashboard-shell"] {
+  font-family: var(--hayk-font-sans);
+}

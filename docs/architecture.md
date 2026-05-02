@@ -30,8 +30,8 @@ Deploy by copying or rsync from the repo template to the live path (see root `RE
 
 ## Dashboard (optional)
 
-- **Backend:** Python FastAPI, restricted file access under `WORKSPACE_ROOT`, whitelisted shell commands only.
-- **Frontend:** React + Vite + TypeScript, talks to API via `/api` (dev proxy or reverse proxy in production).
+- **Backend:** Python FastAPI; contract documented in **`docs/api-contract.md`**, machine schema at **`GET /openapi.json`**.
+- **Frontend:** React + Vite shell (`dashboard/frontend/src/shell/`) designed so a **Lovable** prototype can be merged without changing API paths — see **`docs/lovable-integration.md`**.
 
 The dashboard does **not** replace Hermes; it assists with files, logs, and editing `AGENTS.md` / playbooks when running on the same host or trusted network.
 

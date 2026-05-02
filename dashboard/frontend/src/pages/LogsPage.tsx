@@ -1,17 +1,19 @@
 import { useEffect, useState } from "react";
-import { getText } from "../lib/api";
+import { PageShell } from "../shell/PageShell";
+import { apiClient } from "../lib/api-client";
+import type { LogKind } from "../types/api-contract";
 
 export function LogsPage() {
   const [since, setSince] = useState<string | null>(null);
   const [errors, setErrors] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [loading, setLoading] = useState<string | null>(null);
+  const [loading, setLoading] = useState<LogKind | null>(null);
 
-  async function load(kind: "since1h" | "errors") {
+  async function load(kind: LogKind) {
     setLoading(kind);
     setErr(null);
     try {
-      const text = await getText(`/api/logs/${kind}`);
+      const text = await apiClient.getLogs(kind);
       if (kind === "since1h") setSince(text);
       else setErrors(text);
     } catch (e) {
@@ -27,37 +29,32 @@ export function LogsPage() {
   }, []);
 
   return (
-    <div className="space-y-6 max-w-6xl">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">Logs</h1>
-          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-            Latest output from <code className="text-xs">hermes logs</code> (last 300 lines).
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            className="rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-2 text-sm"
-            disabled={loading === "since1h"}
-            onClick={() => void load("since1h")}
-          >
-            Refresh: last hour
-          </button>
-          <button
-            type="button"
-            className="rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-2 text-sm"
-            disabled={loading === "errors"}
-            onClick={() => void load("errors")}
-          >
-            Refresh: errors
-          </button>
-        </div>
+    <PageShell
+      title="Logs"
+      description="GET /api/logs/since1h and /api/logs/errors (last 300 lines). See docs/api-contract.md."
+    >
+      <div className="flex flex-wrap gap-2 max-w-6xl">
+        <button
+          type="button"
+          className="rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-2 text-sm"
+          disabled={loading === "since1h"}
+          onClick={() => void load("since1h")}
+        >
+          Refresh: last hour
+        </button>
+        <button
+          type="button"
+          className="rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-2 text-sm"
+          disabled={loading === "errors"}
+          onClick={() => void load("errors")}
+        >
+          Refresh: errors
+        </button>
       </div>
 
       {err && <div className="text-sm text-red-600">{err}</div>}
 
-      <section className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-sm">
+      <section className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-sm max-w-6xl">
         <h2 className="text-sm font-medium text-slate-500 mb-2">
           hermes logs --since 1h
         </h2>
@@ -66,12 +63,12 @@ export function LogsPage() {
         </pre>
       </section>
 
-      <section className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-sm">
+      <section className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-sm max-w-6xl">
         <h2 className="text-sm font-medium text-slate-500 mb-2">hermes logs errors</h2>
         <pre className="log-box text-xs font-mono bg-slate-50 dark:bg-slate-950 p-3 rounded-lg border border-slate-200 dark:border-slate-800 max-h-[28rem] overflow-auto">
           {errors ?? "Loading…"}
         </pre>
       </section>
-    </div>
+    </PageShell>
   );
 }

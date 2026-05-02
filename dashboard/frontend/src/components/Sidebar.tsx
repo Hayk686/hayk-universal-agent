@@ -1,37 +1,27 @@
 import { NavLink } from "react-router-dom";
+import { NAV_ROUTES } from "../shell/nav";
 import { cn } from "../lib/format";
-
-const links = [
-  { to: "/", label: "Dashboard" },
-  { to: "/files", label: "Files" },
-  { to: "/agents", label: "AGENTS.md" },
-  { to: "/playbooks", label: "Playbooks" },
-  { to: "/hermes", label: "Hermes" },
-  { to: "/logs", label: "Logs" },
-  { to: "/settings", label: "Settings" },
-] as const;
 
 export function Sidebar() {
   return (
-    <aside className="w-56 shrink-0 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col">
+    <aside
+      className="w-56 shrink-0 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col"
+      style={{ width: "var(--hayk-shell-sidebar-width, 14rem)" }}
+      data-shell-sidebar
+    >
       <div className="p-4 border-b border-slate-200 dark:border-slate-800">
         <div className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
           Hayk
         </div>
         <div className="font-semibold text-sm leading-tight">Universal Agent</div>
       </div>
-      <nav className="flex-1 p-2 space-y-0.5">
-        {links.map((l) => (
+      <nav className="flex-1 p-2 space-y-0.5" data-shell-nav>
+        {NAV_ROUTES.map((l) => (
           <NavLink
-            key={l.to}
-            to={l.to}
-            end={
-              l.to === "/"
-                ? true
-                : l.to === "/playbooks"
-                  ? false
-                  : true
-            }
+            key={l.id}
+            to={l.path}
+            end={l.end ?? true}
+            data-nav-item={l.id}
             className={({ isActive }) =>
               cn(
                 "block rounded-md px-3 py-2 text-sm transition-colors",

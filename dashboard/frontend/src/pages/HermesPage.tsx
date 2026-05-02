@@ -1,41 +1,39 @@
 import { useState } from "react";
-import { postJson } from "../lib/api";
+import { PageShell } from "../shell/PageShell";
+import { apiClient } from "../lib/api-client";
+import type { CommandRunResponse, HermesRunVariant } from "../types/api-contract";
 
-type RunResp = { exitCode: number; output: string };
-
-const buttons: { label: string; variant: string }[] = [
+const buttons: { label: string; variant: HermesRunVariant }[] = [
   { label: "hermes status", variant: "status" },
   { label: "hermes doctor", variant: "doctor" },
   { label: 'hermes -z "Say exactly: OK"', variant: "ping" },
 ];
 
 export function HermesPage() {
-  const [out, setOut] = useState<Record<string, RunResp | string>>({});
+  const [out, setOut] = useState<Record<string, CommandRunResponse | string>>({});
 
-  async function run(variant: string) {
+  async function run(variant: HermesRunVariant) {
     setOut((o) => ({ ...o, [variant]: "Running…" }));
     try {
-      const res = await postJson("/api/hermes/run", { variant });
-      if (!res.ok) throw new Error(await res.text());
-      const j = (await res.json()) as RunResp;
+      const j = await apiClient.runHermes({ variant });
       setOut((o) => ({ ...o, [variant]: j }));
     } catch (e) {
       setOut((o) => ({
         ...o,
-        [variant]: { exitCode: -1, output: e instanceof Error ? e.message : String(e) },
+        [variant]: {
+          exitCode: -1,
+          output: e instanceof Error ? e.message : String(e),
+        },
       }));
     }
   }
 
   return (
-    <div className="space-y-6 max-w-5xl">
-      <div>
-        <h1 className="text-2xl font-semibold">Hermes</h1>
-        <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-          Fixed commands only — no free-form shell input on this page.
-        </p>
-      </div>
-      <div className="flex flex-wrap gap-2">
+    <PageShell
+      title="Hermes"
+      description="Fixed variants only (POST /api/hermes/run). No arbitrary shell — see docs/api-contract.md."
+    >
+      <div className="flex flex-wrap gap-2 max-w-5xl">
         {buttons.map((b) => (
           <button
             key={b.variant}
@@ -47,7 +45,7 @@ export function HermesPage() {
           </button>
         ))}
       </div>
-      <div className="space-y-6">
+      <div className="space-y-6 max-w-5xl">
         {buttons.map((b) => {
           const r = out[b.variant];
           return (
@@ -72,6 +70,6 @@ export function HermesPage() {
           );
         })}
       </div>
-    </div>
+    </PageShell>
   );
 }

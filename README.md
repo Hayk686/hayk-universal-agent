@@ -1,6 +1,6 @@
 # Hayk Universal Agent
 
-**Repository:** `hayk-universal-agent` — source of truth for the agent’s instructions, playbooks, tooling, and (in `dashboard/`) the optional local web UI.
+**Repository:** `hayk-universal-agent` — **source of truth** for agent templates, scripts, docs, and the dashboard (backend + canonical frontend shell). Optional **Lovable** prototypes are **not** required to build or deploy this repo; see **`docs/lovable-integration.md`**.
 
 ```bash
 git clone https://github.com/<your-org>/hayk-universal-agent.git
@@ -15,7 +15,7 @@ Hayk Universal Agent is a **Hermes-driven** automation setup centered on a **wor
 |------|---------|
 | `agent-workspace/` | Template **`AGENTS.md`**, **`playbooks/`**, and **`examples/`** — copy (or sync) to the Pi live workspace |
 | `dashboard/` | FastAPI + React dashboard (optional; see `dashboard/README.md`) |
-| `docs/` | Architecture, roadmap, prompts |
+| `docs/` | Architecture, roadmap, prompts, **[API contract](docs/api-contract.md)**, **[Lovable handoff](docs/lovable-integration.md)** |
 | `scripts/` | **`setup-pi.sh`**, **`backup-workspace.sh`** |
 
 ## Hermes on Raspberry Pi

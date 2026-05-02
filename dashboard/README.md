@@ -4,6 +4,15 @@ Local web UI for the Hayk workspace (FastAPI + React + Vite + TypeScript + Tailw
 
 **Repository overview, safety rules, and Pi deploy:** see the [**root `README.md`**](../README.md).
 
+## API contract and frontend shell
+
+- Human-readable REST contract: **[`../docs/api-contract.md`](../docs/api-contract.md)**
+- Lovable handoff: **[`../docs/lovable-integration.md`](../docs/lovable-integration.md)**
+- Typed client: `frontend/src/lib/api-client.ts`
+- Stable nav + layout hooks: `frontend/src/shell/`
+
+OpenAPI JSON (with backend running): `http://<host>:8080/openapi.json`
+
 ## Quick commands
 
 Backend:

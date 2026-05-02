@@ -1,24 +1,22 @@
 import { useEffect, useState } from "react";
-import { getJson, postJson } from "../lib/api";
-import type { StatusPayload } from "./DashboardPage";
+import { PageShell } from "../shell/PageShell";
+import { apiClient } from "../lib/api-client";
+import type { CommandRunResponse, StatusResponse } from "../types/api-contract";
 
 export function SettingsPage() {
-  const [status, setStatus] = useState<StatusPayload | null>(null);
+  const [status, setStatus] = useState<StatusResponse | null>(null);
   const [commands, setCommands] = useState<string[]>([]);
-  const [cmdOut, setCmdOut] = useState<Record<number, { exitCode: number; output: string }>>(
-    {},
-  );
+  const [cmdOut, setCmdOut] = useState<Record<number, CommandRunResponse>>({});
 
   useEffect(() => {
     (async () => {
       try {
-        const s = await getJson<StatusPayload>("/api/status");
-        setStatus(s);
+        setStatus(await apiClient.getStatus());
       } catch {
         /* ignore */
       }
       try {
-        const w = await getJson<{ commands: string[] }>("/api/commands/whitelist");
+        const w = await apiClient.getCommandWhitelist();
         setCommands(w.commands);
       } catch {
         /* ignore */
@@ -28,9 +26,7 @@ export function SettingsPage() {
 
   async function run(idx: number, command: string) {
     try {
-      const res = await postJson("/api/commands/run", { command });
-      if (!res.ok) throw new Error(await res.text());
-      const j = (await res.json()) as { exitCode: number; output: string };
+      const j = await apiClient.runWhitelistedCommand(command);
       setCmdOut((o) => ({ ...o, [idx]: j }));
     } catch (e) {
       setCmdOut((o) => ({
@@ -41,38 +37,31 @@ export function SettingsPage() {
   }
 
   return (
-    <div className="space-y-8 max-w-5xl">
-      <div>
-        <h1 className="text-2xl font-semibold">Settings</h1>
-        <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-          Local dashboard options and the safe command runner (whitelist only).
-        </p>
-      </div>
-
-      <section className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-sm space-y-2">
+    <PageShell
+      title="Settings"
+      description="Workspace info and whitelist-only command runner (docs/api-contract.md)."
+    >
+      <section className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-sm space-y-2 max-w-5xl">
         <h2 className="text-sm font-medium text-slate-500">Workspace</h2>
         {status ? (
-          <p className="text-sm break-all font-mono text-xs">{status.workspacePath}</p>
+          <p className="break-all font-mono text-xs">{status.workspacePath}</p>
         ) : (
           <p className="text-sm text-slate-500">Unable to load status.</p>
         )}
       </section>
 
-      <section className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-sm space-y-2">
+      <section className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-sm space-y-2 max-w-5xl">
         <h2 className="text-sm font-medium text-slate-500">Future authentication</h2>
         <p className="text-sm text-slate-600 dark:text-slate-300">
-          The backend includes an optional hook: set{" "}
-          <code className="text-xs">DASHBOARD_API_KEY</code> and plan to send header{" "}
-          <code className="text-xs">X-Dashboard-Key</code> from the browser. Not enforced in
-          MVP.
+          Optional <code className="text-xs">DASHBOARD_API_KEY</code> and header{" "}
+          <code className="text-xs">X-Dashboard-Key</code> — not enforced in MVP.
         </p>
       </section>
 
-      <section className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-sm space-y-4">
+      <section className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-sm space-y-4 max-w-5xl">
         <h2 className="text-sm font-medium text-slate-500">Safe command runner</h2>
         <p className="text-xs text-slate-500">
-          Each command must match the server whitelist exactly. Output is trimmed to the last 300
-          lines.
+          Each command must match the server whitelist exactly. Output trimmed to last 300 lines.
         </p>
         <ul className="space-y-4">
           {commands.map((c, i) => (
@@ -98,6 +87,6 @@ export function SettingsPage() {
           ))}
         </ul>
       </section>
-    </div>
+    </PageShell>
   );
 }

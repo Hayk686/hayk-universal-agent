@@ -1,14 +1,10 @@
 import { useEffect, useState } from "react";
-import { getJson } from "../lib/api";
+import { PageShell } from "../shell/PageShell";
+import { apiClient } from "../lib/api-client";
 import { formatBytes, formatLocalTime } from "../lib/format";
+import type { StatusResponse } from "../types/api-contract";
 
-function Badge({
-  ok,
-  label,
-}: {
-  ok: boolean;
-  label: string;
-}) {
+function Badge({ ok, label }: { ok: boolean; label: string }) {
   return (
     <span
       className={
@@ -22,31 +18,18 @@ function Badge({
   );
 }
 
-export type StatusPayload = {
-  agentName: string;
-  workspacePath: string;
-  serverTime: string;
-  agentsMdExists: boolean;
-  playbooksDirExists: boolean;
-  fileCounts: { input: number; output: number; reports: number };
-  diskUsage: {
-    totalBytes: number;
-    usedBytes: number;
-    freeBytes: number;
-    workspaceBytes: number;
-  };
-  venv: { pythonPath: string; existsAndExecutable: boolean };
-};
+/** @deprecated use StatusResponse from types/api-contract */
+export type StatusPayload = StatusResponse;
 
 export function DashboardPage() {
-  const [data, setData] = useState<StatusPayload | null>(null);
+  const [data, setData] = useState<StatusResponse | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     let on = true;
     (async () => {
       try {
-        const s = await getJson<StatusPayload>("/api/status");
+        const s = await apiClient.getStatus();
         if (on) {
           setData(s);
           setErr(null);
@@ -57,7 +40,7 @@ export function DashboardPage() {
     })();
     const t = setInterval(async () => {
       try {
-        const s = await getJson<StatusPayload>("/api/status");
+        const s = await apiClient.getStatus();
         if (on) {
           setData(s);
           setErr(null);
@@ -87,20 +70,20 @@ export function DashboardPage() {
       : 0;
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">{data.agentName}</h1>
-        <p className="text-slate-600 dark:text-slate-400 text-sm mt-1">
+    <PageShell
+      title={data.agentName}
+      description={
+        <>
           Workspace:{" "}
           <code className="text-xs bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded">
             {data.workspacePath}
           </code>
-        </p>
-        <p className="text-xs text-slate-500 mt-2">
-          Server time (UTC): {formatLocalTime(data.serverTime)}
-        </p>
-      </div>
-
+          <span className="block mt-2 text-xs text-slate-500">
+            Server time (UTC): {formatLocalTime(data.serverTime)}
+          </span>
+        </>
+      }
+    >
       {err && (
         <div className="text-sm text-amber-700 dark:text-amber-300">
           Refresh warning: {err}
@@ -175,6 +158,6 @@ export function DashboardPage() {
           </div>
         </div>
       </div>
-    </div>
+    </PageShell>
   );
 }
