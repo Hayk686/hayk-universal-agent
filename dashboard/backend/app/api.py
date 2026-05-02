@@ -109,13 +109,17 @@ def _list_section_files(ws: Path, sub: str) -> list[dict[str, Any]]:
     return out
 
 
-@router.get("/files/list")
-def list_files(ws: Path = Depends(workspace_dep)) -> dict[str, Any]:
-    return {
-        "input": _list_section_files(ws, "input"),
-        "output": _list_section_files(ws, "output"),
-        "reports": _list_section_files(ws, "reports"),
-    }
+@router.get("/files")
+def list_files_by_folder(
+    folder: str,
+    ws: Path = Depends(workspace_dep),
+) -> list[dict[str, Any]]:
+    if folder not in ("input", "output", "reports"):
+        raise HTTPException(
+            status_code=400,
+            detail="folder must be input, output, or reports",
+        )
+    return _list_section_files(ws, folder)
 
 
 def _managed_file_roots(ws: Path) -> tuple[Path, Path, Path]:
@@ -142,6 +146,13 @@ def _validate_file_for_download_or_delete(ws: Path, rel_path: str) -> Path:
     if not p.is_file():
         raise HTTPException(status_code=400, detail="Not a file or does not exist")
     rel_norm = str(p.resolve().relative_to(ws.resolve())).replace("\\", "/")
+    if rel_norm == "AGENTS.md":
+        raise HTTPException(status_code=403, detail="AGENTS.md cannot be deleted via this API")
+    if rel_norm == "playbooks" or rel_norm.startswith("playbooks/"):
+        raise HTTPException(
+            status_code=403,
+            detail="Playbooks paths cannot be deleted via this API",
+        )
     if ".venv/" in rel_norm or rel_norm.startswith(".venv"):
         raise HTTPException(status_code=403, detail="Access to .venv is not allowed")
     if not _is_under_managed_dirs(p, ws):
@@ -284,17 +295,6 @@ def delete_playbook(name: str, ws: Path = Depends(workspace_dep)) -> dict[str, s
     return {"ok": "true"}
 
 
-class HermesRunBody(BaseModel):
-    variant: str = Field(..., description="status|doctor|ping")
-
-
-_VARIANT_CMD: dict[str, list[str]] = {
-    "status": ["hermes", "status"],
-    "doctor": ["hermes", "doctor"],
-    "ping": ["hermes", "-z", "Say exactly: OK"],
-}
-
-
 async def _run_cmd(args: list[str], timeout: float = 120.0) -> tuple[int, str]:
     proc = await asyncio.create_subprocess_exec(
         *args,
@@ -315,16 +315,8 @@ async def _run_cmd(args: list[str], timeout: float = 120.0) -> tuple[int, str]:
     return code, text
 
 
-@router.post("/hermes/run")
-async def hermes_run(body: HermesRunBody) -> dict[str, Any]:
-    if body.variant not in _VARIANT_CMD:
-        raise HTTPException(status_code=400, detail="Invalid variant")
-    code, text = await _run_cmd(_VARIANT_CMD[body.variant])
-    return {"exitCode": code, "output": _tail_lines(text[-400_000:], 300)}
-
-
 HERMES_LOG_CMDS: dict[str, list[str]] = {
-    "since1h": ["hermes", "logs", "--since", "1h"],
+    "hermes": ["hermes", "logs", "--since", "1h"],
     "errors": ["hermes", "logs", "errors"],
 }
 
@@ -336,11 +328,15 @@ def _tail_lines(s: str, max_lines: int = 300) -> str:
     return "\n".join(lines[-max_lines:]) + "\n"
 
 
-@router.get("/logs/{kind}")
-async def get_logs(kind: str) -> PlainTextResponse:
-    if kind not in HERMES_LOG_CMDS:
-        raise HTTPException(status_code=400, detail="Invalid log kind")
-    _, text = await _run_cmd(HERMES_LOG_CMDS[kind], timeout=180.0)
+@router.get("/logs/hermes")
+async def get_logs_hermes() -> PlainTextResponse:
+    _, text = await _run_cmd(HERMES_LOG_CMDS["hermes"], timeout=180.0)
+    return PlainTextResponse(_tail_lines(text, 300), media_type="text/plain; charset=utf-8")
+
+
+@router.get("/logs/errors")
+async def get_logs_errors() -> PlainTextResponse:
+    _, text = await _run_cmd(HERMES_LOG_CMDS["errors"], timeout=180.0)
     return PlainTextResponse(_tail_lines(text, 300), media_type="text/plain; charset=utf-8")
 
 

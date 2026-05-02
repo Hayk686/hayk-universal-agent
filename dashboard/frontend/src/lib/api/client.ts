@@ -1,8 +1,36 @@
-const base = import.meta.env.VITE_API_BASE ?? "";
+/**
+ * Low-level HTTP helpers — API origin resolution:
+ * 1) VITE_API_BASE_URL
+ * 2) VITE_API_BASE
+ * 3) "" (same origin; Vite dev server proxies /api and /health to localhost:8080)
+ *
+ * The origin must be the FastAPI root (no trailing /api). A trailing /api in env is stripped
+ * so requests stay as /api/status, not /api/api/status.
+ */
 
-async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
-  const url = `${base}${path}`;
-  return fetch(url, init);
+export function apiBase(): string {
+  let base = String(
+    import.meta.env.VITE_API_BASE_URL ??
+      import.meta.env.VITE_API_BASE ??
+      "",
+  ).replace(/\/$/, "");
+  // Paths in this app already include `/api/...` and `/health`. If env mistakenly uses
+  // `http://host:8080/api`, calls would become `/api/api/status` (404).
+  if (base.endsWith("/api")) {
+    base = base.slice(0, -4).replace(/\/$/, "");
+  }
+  return base;
+}
+
+/** When true, the app uses mock payloads instead of calling the FastAPI server. */
+export function useMocks(): boolean {
+  const v = import.meta.env.VITE_USE_MOCKS;
+  return v === "true" || v === "1";
+}
+
+export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+  const p = path.startsWith("/") ? path : `/${path}`;
+  return fetch(`${apiBase()}${p}`, init);
 }
 
 export async function getJson<T>(path: string): Promise<T> {
@@ -51,5 +79,5 @@ export async function del(path: string): Promise<Response> {
 
 export function downloadUrl(relPath: string): string {
   const q = `?path=${encodeURIComponent(relPath)}`;
-  return `${base}/api/files/download${q}`;
+  return `${apiBase()}/api/files/download${q}`;
 }

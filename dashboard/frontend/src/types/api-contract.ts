@@ -1,6 +1,5 @@
 /**
  * API shapes aligned with docs/api-contract.md and FastAPI.
- * Change together with backend and docs.
  */
 
 export type HealthResponse = {
@@ -15,6 +14,8 @@ export type FileEntry = {
   extension: string;
   isDir: boolean;
 };
+
+export type FileFolder = "input" | "output" | "reports";
 
 export type StatusResponse = {
   agentName: string;
@@ -39,12 +40,6 @@ export type StatusResponse = {
   };
 };
 
-export type FilesListResponse = {
-  input: FileEntry[];
-  output: FileEntry[];
-  reports: FileEntry[];
-};
-
 export type SaveMarkdownResponse = {
   saved: string;
   backup: string;
@@ -52,12 +47,6 @@ export type SaveMarkdownResponse = {
 
 export type OkResponse = {
   ok: string;
-};
-
-export type HermesRunVariant = "status" | "doctor" | "ping";
-
-export type HermesRunRequest = {
-  variant: HermesRunVariant;
 };
 
 export type CommandRunResponse = {
@@ -77,4 +66,9 @@ export type SaveBodyRequest = {
   content: string;
 };
 
-export type LogKind = "since1h" | "errors";
+/** Exact strings accepted by POST /api/commands/run (must match backend whitelist). */
+export const WHITELIST_SHELL_COMMANDS = {
+  hermesStatus: "hermes status",
+  hermesDoctor: "hermes doctor",
+  hermesPing: 'hermes -z "Say exactly: OK"',
+} as const;

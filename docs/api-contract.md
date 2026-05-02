@@ -1,34 +1,25 @@
 # Dashboard API contract
 
-**Source of truth for behavior:** `hayk-universal-agent` — FastAPI app in `dashboard/backend/app/`.  
-This document is the **human-readable contract** for integrators (e.g. a Lovable prototype). Keep it in sync when routes change.
+**Backend:** `dashboard/backend/app/` (FastAPI).  
+**Workspace (Pi default):** `/home/ubuntu/ai-office-agent-workspace` — overridable with ` WORKSPACE_ROOT`.  
+**OpenAPI:** `GET /openapi.json` on the API host (e.g. port 8080).
 
-**Machine-readable schema:** with the backend running, OpenAPI JSON is always:
-
-- `GET /openapi.json` (relative to API host, e.g. `http://127.0.0.1:8080/openapi.json`)
-
-All JSON routes below are under prefix **`/api`** unless noted.
-
-**Base URL:** dev default `http://127.0.0.1:8080`. Frontend uses `VITE_API_BASE` when the UI is not same-origin.
-
-**Auth (MVP):** none. Optional future header `X-Dashboard-Key` if `DASHBOARD_API_KEY` is wired.
+This document matches the **Hayk Universal Agent** integration surface (Lovable-compatible). Do not read `~/.hermes/.env` from the backend; do not expose API keys in responses.
 
 ---
 
-## Common models
+## Models
 
 ### `FileEntry`
 
-Returned for workspace files (camelCase in JSON).
-
-| Field | Type | Notes |
-|-------|------|--------|
-| `name` | string | Basename |
-| `path` | string | Relative to workspace, `/` separators |
-| `size` | number | Bytes |
-| `modified` | string | ISO 8601 UTC |
-| `extension` | string | Lowercase, no dot, or `"file"` |
-| `isDir` | boolean | Always `false` for list endpoints that only return files |
+| Field | Type |
+|-------|------|
+| `name` | string |
+| `path` | string (relative to workspace, `/`) |
+| `size` | number (bytes) |
+| `modified` | string (ISO 8601 UTC) |
+| `extension` | string |
+| `isDir` | boolean (`false` for file listings)
 
 ### `StatusResponse`
 
@@ -36,19 +27,23 @@ Returned for workspace files (camelCase in JSON).
 |-------|------|
 | `agentName` | string |
 | `workspacePath` | string |
-| `serverTime` | string (ISO UTC) |
+| `serverTime` | string |
 | `agentsMdExists` | boolean |
 | `playbooksDirExists` | boolean |
-| `fileCounts` | `{ input: number, output: number, reports: number }` |
+| `fileCounts` | `{ input, output, reports }` |
 | `diskUsage` | `{ totalBytes, usedBytes, freeBytes, workspaceBytes }` |
-| `venv` | `{ pythonPath: string, existsAndExecutable: boolean }` |
+| `venv` | `{ pythonPath, existsAndExecutable }` |
 
 ### `CommandRunResponse`
 
 | Field | Type |
 |-------|------|
 | `exitCode` | number |
-| `output` | string (trimmed to last 300 lines server-side) |
+| `output` | string (last 300 lines server-side)
+
+### `SaveMarkdownResponse`
+
+`{ "saved": "true", "backup": string }` — `backup` may be empty if no prior file.
 
 ---
 
@@ -56,153 +51,87 @@ Returned for workspace files (camelCase in JSON).
 
 ### `GET /health`
 
-**Response:** `{ "status": "ok" }`  
-No `/api` prefix.
-
----
+`{ "status": "ok" }` — no `/api` prefix.
 
 ### `GET /api/status`
 
-**Response:** `StatusResponse`
+`StatusResponse`
 
----
+### `GET /api/files?folder=input|output|reports`
 
-### `GET /api/files/list`
+Returns **`FileEntry[]`** for that folder only. Invalid `folder` → 400.
 
-**Response:**
-
-```json
-{
-  "input": [ … FileEntry … ],
-  "output": [ … ],
-  "reports": [ … ]
-}
-```
-
----
-
-### `GET /api/files/download?path=<relative-path>`
-
-**Query:** `path` — file path relative to workspace, must be under `input/`, `output/`, or `reports/`.
-
-**Response:** binary stream (`application/octet-stream`).
-
-**Errors:** 400 / 403 if path invalid or outside allowed trees.
-
----
-
-### `DELETE /api/files?path=<relative-path>`
-
-Same path rules as download. Only **files**, not directories.
-
-**Response:** `{ "ok": "true" }`
-
----
+Download (not listed in minimal marketing docs but used by UI): **`GET /api/files/download?path=…`** — path must be a file under `input/`, `output/`, or `reports/`.
 
 ### `POST /api/files/upload`
 
-**Body:** `multipart/form-data`, field `file` (single file).
+`multipart/form-data` field `file`. Flat filename only → written under `input/`.  
+Response: `FileEntry`
 
-**Rules:** filename only (no `/` or `\`); file is written under `input/`.
+### `DELETE /api/files?path=…`
 
-**Response:** `FileEntry`
-
----
+Deletes **one file** under `input/`, `output/`, or `reports/` only.  
+**Forbidden:** directories, `AGENTS.md`, any `playbooks/…`, `.venv`, paths outside workspace.  
+Response: `{ "ok": "true" }`
 
 ### `GET /api/agents-md`
 
-**Response:** raw markdown (`text/markdown`), may be empty if file missing.
-
----
+Raw markdown (`text/markdown`).
 
 ### `PUT /api/agents-md`
 
-**Body:** `{ "content": string }` (UTF-8)
-
-**Response:** `{ "saved": "true", "backup": string }` — `backup` is empty if the file did not exist before save; otherwise `AGENTS.md.bak.YYYYMMDD_HHMMSS`.
-
----
+Body: `{ "content": string }`. Backup `AGENTS.md.bak.YYYYMMDD_HHMMSS` if file existed.  
+Response: `SaveMarkdownResponse`
 
 ### `GET /api/playbooks`
 
-**Response:** `FileEntry[]` (only `*.md` in `playbooks/`).
-
----
+`FileEntry[]` — `*.md` in `playbooks/`.
 
 ### `GET /api/playbooks/{name}`
 
-**Path:** `name` — e.g. `plan-first.md` (no slashes).
-
-**Response:** raw markdown (`text/markdown`).
-
-**Errors:** 404 if missing.
-
----
+Markdown (`name` e.g. `plan-first.md`, no slashes). 404 if missing.
 
 ### `PUT /api/playbooks/{name}`
 
-**Body:** `{ "content": string }`
+Body: `{ "content": string }`. Backup in `playbooks/` with `.bak.YYYYMMDD_HHMMSS` before overwrite.
 
-**Response:** `{ "saved": "true", "backup": string }` — backup filename only (lives under `playbooks/`).
+### `POST /api/playbooks` / `DELETE /api/playbooks/{name}`
 
----
-
-### `POST /api/playbooks`
-
-**Body:** `{ "name": string }` — must match `^[a-zA-Z0-9][a-zA-Z0-9_-]*\.md$`
-
-**Response:** `FileEntry`
-
-**Errors:** 409 if exists.
-
----
-
-### `DELETE /api/playbooks/{name}`
-
-**Response:** `{ "ok": "true" }`
-
----
-
-### `POST /api/hermes/run`
-
-**Body:** `{ "variant": "status" | "doctor" | "ping" }`
-
-Maps to fixed CLI invocations (no user shell).
-
-**Response:** `CommandRunResponse` (`output` line-capped).
-
-**Errors:** 400 if `variant` unknown.
-
----
-
-### `GET /api/logs/{kind}`
-
-**Path:** `kind` = `since1h` | `errors` (maps to `hermes logs --since 1h` and `hermes logs errors`).
-
-**Response:** plain text (`text/plain`), last **300** lines.
-
-**Errors:** 400 if `kind` invalid.
-
----
-
-### `GET /api/commands/whitelist`
-
-**Response:** `{ "commands": string[] }` — exact strings allowed for `POST /api/commands/run`.
-
----
+Optional helpers for create/delete single playbook files (not part of minimal marketing list; same path rules as `_playbook_path`).
 
 ### `POST /api/commands/run`
 
-**Body:** `{ "command": string }` — must **exactly** match one entry from the whitelist (after trim).
+Body: `{ "command": string }` — must **exactly** match a server whitelist entry (after trim).  
+No `sudo`, no `rm` from user input, no arbitrary shell beyond these strings:
 
-**Response:** `CommandRunResponse`
+- `pwd`
+- `ls -la /home/ubuntu/ai-office-agent-workspace`
+- `ls -la /home/ubuntu/ai-office-agent-workspace/input`
+- `ls -la /home/ubuntu/ai-office-agent-workspace/output`
+- `ls -la /home/ubuntu/ai-office-agent-workspace/reports`
+- `hermes status`
+- `hermes doctor`
+- `hermes logs --since 1h`
+- `hermes logs errors`
+- `hermes -z "Say exactly: OK"`
+- `/home/ubuntu/ai-office-agent-workspace/.venv/bin/python -c "import sys; print(sys.executable)"`
 
-**Errors:** 400 if not whitelisted.
+Response: `CommandRunResponse`
+
+### `GET /api/commands/whitelist`
+
+`{ "commands": string[] }` — convenience for Settings UI.
+
+### `GET /api/logs/hermes`
+
+Plain text — `hermes logs --since 1h`, last **300** lines.
+
+### `GET /api/logs/errors`
+
+Plain text — `hermes logs errors`, last **300** lines.
 
 ---
 
-## Stability notes
+## Change policy
 
-- Prefer **adding** fields or optional endpoints over renaming JSON keys (breaking change for the shell and any Lovable port).
-- File path query/params use workspace-relative POSIX-style paths with `/`.
-- Integrators should not assume Hermes is installed; handle non-zero exit codes in `CommandRunResponse`.
+Bump **`docs/api-contract.md`**, **`dashboard/frontend/src/types/api-contract.ts`**, and **`dashboard/frontend/src/lib/api/`** (and **`api-client.ts`** re-exports) together when changing JSON or routes.

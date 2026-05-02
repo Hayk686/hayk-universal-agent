@@ -15,7 +15,9 @@ async def permission_denied(_request: Request, _exc: PermissionError) -> JSONRes
 
 _origins = os.environ.get(
     "CORS_ORIGINS",
-    "http://localhost:5173,http://127.0.0.1:5173",
+    "http://localhost:5173,http://127.0.0.1:5173,"
+    "http://localhost:5174,http://127.0.0.1:5174,"
+    "http://localhost:5175,http://127.0.0.1:5175",
 )
 origins = [o.strip() for o in _origins.split(",") if o.strip()]
 

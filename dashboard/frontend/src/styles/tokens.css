@@ -1,14 +1,157 @@
 /**
- * Design tokens — map Lovable / design handoff to these variables
- * so the shell keeps a stable surface when swapping components.
+ * Design tokens — Lovable-style handoff surface + Hayk branding.
  */
 :root {
-  --hayk-shell-sidebar-width: 14rem;
-  --hayk-radius: 0.75rem;
-  --hayk-font-sans: system-ui, "Segoe UI", Roboto, sans-serif;
+  --hayk-shell-sidebar-width: 15rem;
+  --hayk-radius: 1rem;
+  --hayk-font-sans: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
   --hayk-font-mono: ui-monospace, "Cascadia Code", monospace;
+  --hayk-accent-from: 139 92 246;
+  --hayk-accent-to: 99 102 241;
 }
 
 [data-app="hayk-dashboard-shell"] {
   font-family: var(--hayk-font-sans);
+  background: linear-gradient(
+    135deg,
+    rgb(248 250 252) 0%,
+    rgb(237 233 254) 45%,
+    rgb(248 250 252) 100%
+  );
+}
+
+.dark[data-app="hayk-dashboard-shell"],
+html.dark [data-app="hayk-dashboard-shell"] {
+  /* Subtle violet + teal glow over Lovable-matched base (Tailwind 3 / html.dark tokens) */
+  background:
+    radial-gradient(ellipse 115% 75% at 50% -18%, oklch(0.42 0.16 264 / 0.22) 0%, transparent 52%),
+    radial-gradient(ellipse 75% 45% at 100% 0%, oklch(0.55 0.14 165 / 0.09) 0%, transparent 48%),
+    linear-gradient(180deg, oklch(0.11 0.038 265) 0%, oklch(0.129 0.042 264.695) 42%, oklch(0.105 0.038 265) 100%);
+}
+
+/* shadcn-style tokens (Lovable hub) — referenced by Tailwind theme extension */
+:root {
+  --radius: 0.625rem;
+  --background: oklch(0.985 0.002 250);
+  --foreground: oklch(0.2 0.02 250);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.2 0.02 250);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.2 0.02 250);
+  --primary: oklch(0.45 0.14 260);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.96 0.01 250);
+  --secondary-foreground: oklch(0.25 0.02 250);
+  --muted: oklch(0.94 0.01 250);
+  --muted-foreground: oklch(0.45 0.02 250);
+  --accent: oklch(0.94 0.02 250);
+  --accent-foreground: oklch(0.25 0.02 250);
+  --destructive: oklch(0.55 0.2 25);
+  --destructive-foreground: oklch(0.985 0 0);
+  --warning: oklch(0.75 0.14 75);
+  --warning-foreground: oklch(0.25 0.02 75);
+  --success: oklch(0.55 0.14 165);
+  --success-foreground: oklch(0.985 0 0);
+  --info: oklch(0.62 0.12 240);
+  --info-foreground: oklch(0.18 0.02 240);
+  --border: oklch(0.88 0.01 250);
+  --input: oklch(0.88 0.01 250);
+  --ring: oklch(0.45 0.14 260);
+  --sidebar: oklch(0.98 0.005 250);
+  --sidebar-foreground: oklch(0.2 0.02 250);
+  --sidebar-primary: oklch(0.45 0.14 260);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.94 0.02 250);
+  --sidebar-accent-foreground: oklch(0.2 0.02 250);
+  --sidebar-border: oklch(0.88 0.01 250);
+  --sidebar-ring: oklch(0.45 0.14 260);
+  --shadow-soft: 0 4px 24px -6px rgb(15 23 42 / 0.08);
+  --shadow-glow-primary: 0 0 28px -8px oklch(0.45 0.14 260 / 0.35);
+  --gradient-hero:
+    radial-gradient(
+      120% 80% at 0% 0%,
+      color-mix(in oklab, var(--primary) 16%, transparent) 0%,
+      transparent 55%
+    ),
+    radial-gradient(
+      80% 60% at 100% 0%,
+      color-mix(in oklab, var(--info) 12%, transparent) 0%,
+      transparent 60%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--card) 96%, transparent) 0%,
+      color-mix(in oklab, var(--card) 88%, transparent) 100%
+    );
+  --gradient-card: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--card) 98%, transparent) 0%,
+    color-mix(in oklab, var(--card) 92%, transparent) 100%
+  );
+}
+
+/*
+ * Dark mode — aligned with hayk-dashboard-hub `src/styles.css`:
+ * - Surfaces, primary, sidebar: `.dark` block (lines 144–177)
+ * - warning / success / info: hub `:root` (not overridden by `.dark`)
+ * - gradient-hero, gradient-card, shadow-*: hub `:root` premium tokens (118–141)
+ */
+html.dark {
+  --background: oklch(0.129 0.042 264.695);
+  --foreground: oklch(0.984 0.003 247.858);
+  --card: oklch(0.208 0.042 265.755);
+  --card-foreground: oklch(0.984 0.003 247.858);
+  --popover: oklch(0.208 0.042 265.755);
+  --popover-foreground: oklch(0.984 0.003 247.858);
+  --primary: oklch(0.929 0.013 255.508);
+  --primary-foreground: oklch(0.208 0.042 265.755);
+  --secondary: oklch(0.279 0.041 260.031);
+  --secondary-foreground: oklch(0.984 0.003 247.858);
+  --muted: oklch(0.279 0.041 260.031);
+  --muted-foreground: oklch(0.704 0.04 256.788);
+  --accent: oklch(0.279 0.041 260.031);
+  --accent-foreground: oklch(0.984 0.003 247.858);
+  --destructive: oklch(0.704 0.191 22.216);
+  --destructive-foreground: oklch(0.984 0.003 247.858);
+  --warning: oklch(0.78 0.15 75);
+  --warning-foreground: oklch(0.2 0.02 75);
+  --success: oklch(0.78 0.16 165);
+  --success-foreground: oklch(0.18 0.02 165);
+  --info: oklch(0.7 0.15 220);
+  --info-foreground: oklch(0.18 0.02 220);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.551 0.027 264.364);
+  --sidebar: oklch(0.208 0.042 265.755);
+  --sidebar-foreground: oklch(0.984 0.003 247.858);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.984 0.003 247.858);
+  --sidebar-accent: oklch(0.279 0.041 260.031);
+  --sidebar-accent-foreground: oklch(0.984 0.003 247.858);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.551 0.027 264.364);
+  --gradient-hero: radial-gradient(
+      120% 80% at 0% 0%,
+      color-mix(in oklab, var(--primary) 18%, transparent) 0%,
+      transparent 55%
+    ),
+    radial-gradient(
+      80% 60% at 100% 0%,
+      color-mix(in oklab, var(--info) 14%, transparent) 0%,
+      transparent 60%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--card) 92%, transparent) 0%,
+      color-mix(in oklab, var(--card) 70%, transparent) 100%
+    );
+  --gradient-card: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--card) 96%, transparent) 0%,
+    color-mix(in oklab, var(--card) 82%, transparent) 100%
+  );
+  --shadow-glow-primary: 0 0 0 1px color-mix(in oklab, var(--primary) 25%, transparent),
+    0 8px 30px -12px color-mix(in oklab, var(--primary) 45%, transparent);
+  --shadow-soft: 0 1px 0 0 color-mix(in oklab, white 4%, transparent) inset,
+    0 10px 30px -18px oklch(0 0 0 / 0.6);
 }

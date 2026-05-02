@@ -38,11 +38,36 @@ def test_safe_join_rejects_absolute_outside(tmp_path: Path) -> None:
         safe_join(ws, str(target))
 
 
+def test_whitelist_includes_hermes_ping() -> None:
+    assert is_whitelisted_command('hermes -z "Say exactly: OK"')
+
+
 def test_whitelist_exact_match_only() -> None:
     assert is_whitelisted_command("pwd")
     assert not is_whitelisted_command("pwd && cat /etc/passwd")
     assert not is_whitelisted_command("rm -rf /")
     assert not is_whitelisted_command("hermes status ; rm -rf /")
+
+
+def test_delete_rejects_playbook_via_files_api(workspace: Path) -> None:
+    client = _client_for_workspace(workspace)
+    r = client.delete("/api/files", params={"path": "playbooks/p.md"})
+    assert r.status_code == 403
+
+
+def test_list_files_by_folder(workspace: Path) -> None:
+    client = _client_for_workspace(workspace)
+    r = client.get("/api/files", params={"folder": "input"})
+    assert r.status_code == 200
+    data = r.json()
+    assert len(data) == 1
+    assert data[0]["name"] == "ok.txt"
+
+
+def test_list_files_invalid_folder(workspace: Path) -> None:
+    client = _client_for_workspace(workspace)
+    r = client.get("/api/files", params={"folder": "etc"})
+    assert r.status_code == 400
 
 
 def _client_for_workspace(ws: Path) -> TestClient:
