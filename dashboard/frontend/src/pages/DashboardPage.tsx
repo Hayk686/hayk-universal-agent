@@ -1,163 +1,491 @@
 import { useEffect, useState } from "react";
-import { PageShell } from "../shell/PageShell";
-import { apiClient } from "../lib/api-client";
-import { formatBytes, formatLocalTime } from "../lib/format";
-import type { StatusResponse } from "../types/api-contract";
+import { Link } from "react-router-dom";
+import {
+  Activity,
+  AlertTriangle,
+  BookOpen,
+  Bot,
+  Cpu,
+  FileEdit,
+  FolderOpen,
+  HardDrive,
+  History,
+  KeyRound,
+  Layers,
+  Lock,
+  ScrollText,
+  Server,
+  Settings,
+  ShieldCheck,
+  Terminal as TerminalIcon,
+  Upload,
+  Zap,
+  type LucideIcon,
+} from "lucide-react";
 
-function Badge({ ok, label }: { ok: boolean; label: string }) {
+import { ActivityTimeline } from "@/components/activity-timeline";
+import { EmptyState } from "@/components/empty-state";
+import { FileTypeIcon } from "@/components/file-type-icon";
+import { HealthCheckCard, type HealthState } from "@/components/health-check-card";
+import { QuickActionButton } from "@/components/quick-action-button";
+import { SafetyBadge } from "@/components/safety-badge";
+import { SectionHeader } from "@/components/section-header";
+import { SourceModeBadge } from "@/components/source-mode-badge";
+import { StatusBadge, type StatusTone } from "@/components/status-badge";
+import { WarningCard, type WarningSeverity } from "@/components/warning-card";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { api, fetchStatus, useMocks, type StatusOrigin } from "@/lib/api";
+import { formatBytes, formatLocalTime, formatRelative } from "@/lib/format";
+import type { StatusResponse } from "@/types/api-contract";
+
+function inferSeverity(text: string): WarningSeverity {
+  const t = text.toLowerCase();
+  if (t.includes("critical") || t.includes("error") || t.includes("fail")) return "critical";
+  if (t.includes("warn") || t.includes("%") || t.includes("slow")) return "warning";
+  return "info";
+}
+
+function Stat({
+  icon: Icon,
+  label,
+  value,
+  hint,
+  tone,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: number | string | undefined;
+  hint?: string;
+  tone?: "warning";
+}) {
   return (
-    <span
-      className={
-        ok
-          ? "inline-flex items-center rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200 px-2 py-0.5 text-xs font-medium"
-          : "inline-flex items-center rounded-full bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100 px-2 py-0.5 text-xs font-medium"
-      }
-    >
-      {label}
-    </span>
+    <div className="relative overflow-hidden rounded-xl border border-border/70 bg-secondary/25 p-3 shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset]">
+      <div className="flex items-center gap-2">
+        <Icon
+          className={
+            tone === "warning"
+              ? "h-3.5 w-3.5 text-warning"
+              : "h-3.5 w-3.5 text-muted-foreground"
+          }
+        />
+        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</span>
+      </div>
+      <div className="mt-1 text-2xl font-semibold tabular-nums">{value ?? "—"}</div>
+      {hint && <div className="text-[11px] text-muted-foreground">{hint}</div>}
+    </div>
   );
 }
 
-/** @deprecated use StatusResponse from types/api-contract */
-export type StatusPayload = StatusResponse;
+function DashboardHero({
+  data,
+  statusOrigin,
+  label,
+  tone,
+  pulse,
+}: {
+  data: StatusResponse;
+  statusOrigin: StatusOrigin;
+  label: string;
+  tone: StatusTone;
+  pulse: boolean;
+}) {
+  return (
+    <section
+      className="relative overflow-hidden rounded-2xl border border-border/80 p-5 sm:p-7 shadow-[var(--shadow-soft)]"
+      style={{ backgroundImage: "var(--gradient-hero)" }}
+    >
+      <div
+        className="pointer-events-none absolute inset-0 opacity-[0.06] dark:opacity-[0.09]"
+        style={{
+          backgroundImage:
+            "linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px)",
+          backgroundSize: "32px 32px",
+        }}
+        aria-hidden
+      />
+      <div className="relative flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex items-start gap-4">
+          <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-primary/40 bg-gradient-to-br from-primary/30 to-primary/5 text-primary shadow-[var(--shadow-glow-primary)]">
+            <Bot className="h-6 w-6" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
+                Hayk Universal Agent
+              </h1>
+              <StatusBadge tone={tone} pulse={pulse}>
+                {label}
+              </StatusBadge>
+              <SourceModeBadge statusOrigin={statusOrigin} />
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Local AI agent · Hermes runtime · workspace control center
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-4">
+              <HeroMeta label="Agent" value={data.agentName} mono />
+              <HeroMeta label="Server time" value={formatLocalTime(data.serverTime)} />
+              <HeroMeta
+                label="Disk used"
+                value={
+                  data.diskUsage.totalBytes > 0
+                    ? `${Math.round((data.diskUsage.usedBytes / data.diskUsage.totalBytes) * 100)}%`
+                    : "—"
+                }
+              />
+              <HeroMeta label="Last sync" value={formatRelative(data.serverTime)} />
+            </div>
+            <div className="mt-3 flex items-center gap-2 text-[11px] text-muted-foreground">
+              <HardDrive className="h-3 w-3 shrink-0" />
+              <span className="truncate font-mono">{data.workspacePath}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function HeroMeta({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="min-w-0">
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className={mono ? "truncate font-mono text-xs" : "truncate text-xs"}>{value}</div>
+    </div>
+  );
+}
 
 export function DashboardPage() {
-  const [data, setData] = useState<StatusResponse | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  const [bundle, setBundle] = useState<{
+    data: StatusResponse;
+    origin: StatusOrigin;
+    liveError?: string;
+  } | null>(null);
+
+  const [recentFiles, setRecentFiles] = useState<{ name: string; ext: string; ts: string }[]>([]);
 
   useEffect(() => {
     let on = true;
-    (async () => {
-      try {
-        const s = await apiClient.getStatus();
-        if (on) {
-          setData(s);
-          setErr(null);
-        }
-      } catch (e) {
-        if (on) setErr(e instanceof Error ? e.message : String(e));
-      }
-    })();
-    const t = setInterval(async () => {
-      try {
-        const s = await apiClient.getStatus();
-        if (on) {
-          setData(s);
-          setErr(null);
-        }
-      } catch (e) {
-        if (on) setErr(e instanceof Error ? e.message : String(e));
-      }
-    }, 30_000);
+    async function tick() {
+      const r = await fetchStatus();
+      if (on) setBundle(r);
+    }
+    void tick();
+    const t = setInterval(() => void tick(), 30_000);
     return () => {
       on = false;
       clearInterval(t);
     };
   }, []);
 
-  if (err && !data)
+  useEffect(() => {
+    let on = true;
+    (async () => {
+      try {
+        const [i, o, r] = await Promise.all([
+          api.listFilesInFolder("input"),
+          api.listFilesInFolder("output"),
+          api.listFilesInFolder("reports"),
+        ]);
+        if (!on) return;
+        const merged = [...i, ...o, ...r]
+          .filter((f) => !f.isDir)
+          .map((f) => ({ name: f.name, ext: f.extension, ts: f.modified }))
+          .sort((a, b) => +new Date(b.ts) - +new Date(a.ts))
+          .slice(0, 5);
+        setRecentFiles(merged);
+      } catch {
+        if (on) setRecentFiles([]);
+      }
+    })();
+    return () => {
+      on = false;
+    };
+  }, []);
+
+  if (!bundle) {
     return (
-      <div className="rounded-xl border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/40 p-4 text-red-800 dark:text-red-200">
-        {err}
+      <div className="flex min-h-[40vh] items-center justify-center text-sm text-muted-foreground">
+        Loading control center…
       </div>
     );
+  }
 
-  if (!data) return <div className="text-slate-500">Loading…</div>;
+  const data = bundle.data;
+  const statusOrigin = bundle.origin;
+  const liveError = bundle.liveError;
+  const mockMode = useMocks();
 
   const usedPct =
     data.diskUsage.totalBytes > 0
       ? Math.round((data.diskUsage.usedBytes / data.diskUsage.totalBytes) * 100)
       : 0;
 
+  const warnings: string[] = [];
+  if (!data.agentsMdExists) warnings.push("AGENTS.md is missing in the workspace.");
+  if (!data.playbooksDirExists) warnings.push("playbooks/ directory is missing.");
+  if (!data.venv.existsAndExecutable) warnings.push("Python venv is missing or not executable.");
+
+  let heroLabel: string;
+  let heroTone: StatusTone;
+  let heroPulse: boolean;
+  if (statusOrigin === "mock-env") {
+    heroLabel = "PREVIEW";
+    heroTone = "muted";
+    heroPulse = false;
+  } else if (statusOrigin === "mock-offline") {
+    heroLabel = "OFFLINE";
+    heroTone = "destructive";
+    heroPulse = false;
+  } else if (warnings.length > 0) {
+    heroLabel = "ATTENTION";
+    heroTone = "warning";
+    heroPulse = false;
+  } else {
+    heroLabel = "OPERATIONAL";
+    heroTone = "success";
+    heroPulse = true;
+  }
+
+  const activityItems = [
+    {
+      id: "snap",
+      icon: Activity,
+      title: "Workspace status refreshed",
+      detail: `${data.fileCounts.input + data.fileCounts.output + data.fileCounts.reports} files across managed folders`,
+      ts: data.serverTime,
+      tone: warnings.length ? ("warning" as const) : ("success" as const),
+    },
+  ];
+
+  const hermesHealth: HealthState =
+    statusOrigin === "live" ? "ok" : statusOrigin === "mock-env" ? "ok" : "warn";
+
   return (
-    <PageShell
-      title={data.agentName}
-      description={
-        <>
-          Workspace:{" "}
-          <code className="text-xs bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded">
-            {data.workspacePath}
-          </code>
-          <span className="block mt-2 text-xs text-slate-500">
-            Server time (UTC): {formatLocalTime(data.serverTime)}
-          </span>
-        </>
-      }
-    >
-      {err && (
-        <div className="text-sm text-amber-700 dark:text-amber-300">
-          Refresh warning: {err}
+    <div className="mx-auto max-w-7xl space-y-6">
+      <DashboardHero
+        data={data}
+        statusOrigin={statusOrigin}
+        label={heroLabel}
+        tone={heroTone}
+        pulse={heroPulse}
+      />
+
+      {statusOrigin === "mock-offline" && liveError && (
+        <div
+          className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-foreground shadow-[var(--shadow-soft)]"
+          role="status"
+        >
+          <span className="font-medium">Live API unavailable.</span>{" "}
+          <span className="text-muted-foreground">Offline preview data. </span>
+          <span className="font-mono text-xs break-all text-muted-foreground">{liveError}</span>
+        </div>
+      )}
+      {mockMode && (
+        <div
+          className="rounded-xl border border-border/80 bg-secondary/30 px-4 py-3 text-sm text-muted-foreground shadow-[var(--shadow-soft)]"
+          role="status"
+        >
+          <span className="font-medium text-foreground">Mock mode</span> — configured via{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5 text-xs">VITE_USE_MOCKS=true</code>.
         </div>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-sm">
-          <h2 className="text-sm font-medium text-slate-500 dark:text-slate-400">
-            Workspace checks
-          </h2>
-          <ul className="mt-3 space-y-2 text-sm">
-            <li className="flex justify-between gap-2">
-              <span>AGENTS.md</span>
-              <Badge ok={data.agentsMdExists} label={data.agentsMdExists ? "Present" : "Missing"} />
-            </li>
-            <li className="flex justify-between gap-2">
-              <span>playbooks/</span>
-              <Badge ok={data.playbooksDirExists} label={data.playbooksDirExists ? "Present" : "Missing"} />
-            </li>
-          </ul>
-        </div>
+      <div className="grid gap-6 lg:grid-cols-3">
+        <section className="lg:col-span-2 space-y-3">
+          <SectionHeader
+            icon={Activity}
+            title="Agent Health"
+            description="Live status from GET /api/status — every subsystem the workspace reports."
+          />
+          <Card className="border-border/80 bg-card [background-image:var(--gradient-card)]">
+            <CardContent className="grid gap-3 p-4 sm:grid-cols-2">
+              <HealthCheckCard
+                icon={Bot}
+                label="Agent identity"
+                detail={data.agentName}
+                state={!data.agentsMdExists ? "warn" : "ok"}
+              />
+              <HealthCheckCard
+                icon={Cpu}
+                label="Hermes runtime"
+                detail={statusOrigin === "live" ? "API reachable" : "Use Hermes page for CLI"}
+                state={hermesHealth}
+              />
+              <HealthCheckCard
+                icon={Server}
+                label="Python environment"
+                detail={data.venv.existsAndExecutable ? data.venv.pythonPath : "not executable"}
+                state={data.venv.existsAndExecutable ? "ok" : "warn"}
+              />
+              <HealthCheckCard
+                icon={HardDrive}
+                label="Workspace access"
+                detail={data.workspacePath}
+                state="ok"
+              />
+              <HealthCheckCard
+                icon={BookOpen}
+                label="Playbooks"
+                detail={data.playbooksDirExists ? "directory present" : "missing"}
+                state={data.playbooksDirExists ? "ok" : "down"}
+              />
+              <HealthCheckCard
+                icon={ScrollText}
+                label="Logs available"
+                detail="hermes · errors"
+                state="ok"
+              />
+            </CardContent>
+          </Card>
+        </section>
 
-        <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-sm">
-          <h2 className="text-sm font-medium text-slate-500 dark:text-slate-400">
-            File counts
-          </h2>
-          <ul className="mt-3 space-y-2 text-sm">
-            <li className="flex justify-between">
-              <span>input/</span>
-              <span className="font-mono">{data.fileCounts.input}</span>
-            </li>
-            <li className="flex justify-between">
-              <span>output/</span>
-              <span className="font-mono">{data.fileCounts.output}</span>
-            </li>
-            <li className="flex justify-between">
-              <span>reports/</span>
-              <span className="font-mono">{data.fileCounts.reports}</span>
-            </li>
-          </ul>
-        </div>
-
-        <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-sm md:col-span-2 xl:col-span-1">
-          <h2 className="text-sm font-medium text-slate-500 dark:text-slate-400">
-            Disk usage (volume)
-          </h2>
-          <p className="mt-3 text-sm">
-            Used {formatBytes(data.diskUsage.usedBytes)} /{" "}
-            {formatBytes(data.diskUsage.totalBytes)}{" "}
-            <span className="text-slate-500">({usedPct}%)</span>
-          </p>
-          <p className="text-sm mt-1 text-slate-600 dark:text-slate-300">
-            Free: {formatBytes(data.diskUsage.freeBytes)}
-          </p>
-          <p className="text-xs mt-3 text-slate-500">
-            Workspace folder size (estimate):{" "}
-            {formatBytes(data.diskUsage.workspaceBytes)}
-          </p>
-        </div>
-
-        <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-sm md:col-span-2 xl:col-span-3">
-          <h2 className="text-sm font-medium text-slate-500 dark:text-slate-400">
-            Python venv
-          </h2>
-          <p className="mt-2 text-sm break-all font-mono text-xs">{data.venv.pythonPath}</p>
-          <div className="mt-2">
-            <Badge
-              ok={data.venv.existsAndExecutable}
-              label={data.venv.existsAndExecutable ? "Executable" : "Not ready"}
-            />
-          </div>
-        </div>
+        <section className="space-y-3">
+          <SectionHeader
+            icon={Zap}
+            title="Quick Actions"
+            description="Jump to tools — whitelisted commands live on Hermes."
+          />
+          <Card className="border-border/80 bg-card [background-image:var(--gradient-card)]">
+            <CardContent className="grid grid-cols-2 gap-2.5 p-4">
+              <QuickActionButton
+                icon={FolderOpen}
+                label="Files"
+                hint="browse I/O"
+                to="/files"
+              />
+              <QuickActionButton icon={FileEdit} label="AGENTS.md" hint="editor" to="/agents" />
+              <QuickActionButton icon={BookOpen} label="Playbooks" hint="library" to="/playbooks" />
+              <QuickActionButton icon={Cpu} label="Hermes" hint="whitelist" to="/hermes" />
+              <QuickActionButton icon={ScrollText} label="Logs" hint="capture" to="/logs" />
+              <QuickActionButton icon={Settings} label="Settings" hint="API & mode" to="/settings" />
+            </CardContent>
+          </Card>
+        </section>
       </div>
-    </PageShell>
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        <section className="lg:col-span-2 space-y-3">
+          <SectionHeader
+            icon={FolderOpen}
+            title="Workspace Overview"
+            description="Files, disk, and recent modifications."
+            action={
+              <Button variant="ghost" size="sm" className="text-xs" asChild>
+                <Link to="/files">Open files →</Link>
+              </Button>
+            }
+          />
+          <Card className="border-border/80 bg-card [background-image:var(--gradient-card)]">
+            <CardContent className="space-y-4 p-4">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <Stat icon={Upload} label="input" value={data.fileCounts.input} hint="files" />
+                <Stat icon={Layers} label="output" value={data.fileCounts.output} hint="files" />
+                <Stat
+                  icon={ScrollText}
+                  label="reports"
+                  value={data.fileCounts.reports}
+                  hint="files"
+                />
+                <Stat
+                  icon={HardDrive}
+                  label="disk used"
+                  value={`${usedPct}%`}
+                  hint={`${formatBytes(data.diskUsage.workspaceBytes)} workspace`}
+                  tone={usedPct >= 85 ? "warning" : undefined}
+                />
+              </div>
+              <div>
+                <div className="mb-2 flex items-center justify-between text-[11px] uppercase tracking-wider text-muted-foreground">
+                  <span>Recent modified</span>
+                  <span className="font-mono">last 5</span>
+                </div>
+                {recentFiles.length === 0 ? (
+                  <EmptyState
+                    icon={FolderOpen}
+                    title="No files yet"
+                    description="Upload to input/ or add files in the workspace."
+                  />
+                ) : (
+                  <ul className="divide-y divide-border/70 overflow-hidden rounded-xl border border-border/80">
+                    {recentFiles.map((f) => (
+                      <li
+                        key={`${f.name}-${f.ts}`}
+                        className="flex items-center justify-between gap-3 bg-secondary/20 px-3 py-2.5 text-sm"
+                      >
+                        <div className="flex min-w-0 items-center gap-2">
+                          <FileTypeIcon ext={f.ext} />
+                          <span className="truncate font-mono text-xs">{f.name}</span>
+                        </div>
+                        <span className="shrink-0 text-[11px] text-muted-foreground">
+                          {formatRelative(f.ts)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+
+        <section className="space-y-3">
+          <SectionHeader
+            icon={ShieldCheck}
+            title="Safety Center"
+            description="Guardrails enforced by the API."
+          />
+          <Card className="border-border/80 bg-card [background-image:var(--gradient-card)]">
+            <CardContent className="space-y-2.5 p-4">
+              <SafetyBadge icon={TerminalIcon} label="Command whitelist" enabled />
+              <SafetyBadge icon={KeyRound} label="Secrets protected" enabled />
+              <SafetyBadge icon={Lock} label="Path sandbox" enabled />
+              <SafetyBadge icon={ShieldCheck} label="Destructive ops limited" enabled />
+            </CardContent>
+          </Card>
+        </section>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        <section className="lg:col-span-2 space-y-3">
+          <SectionHeader
+            icon={History}
+            title="Recent Activity"
+            description="Latest context from this dashboard."
+          />
+          <Card className="border-border/80 bg-card [background-image:var(--gradient-card)]">
+            <CardContent className="p-4">
+              <ActivityTimeline items={activityItems} />
+            </CardContent>
+          </Card>
+        </section>
+
+        <section className="space-y-3">
+          <SectionHeader
+            icon={AlertTriangle}
+            title="Warnings"
+            description={warnings.length > 0 ? `${warnings.length} active` : "All clear"}
+          />
+          <Card className="border-border/80 bg-card [background-image:var(--gradient-card)]">
+            <CardContent className="space-y-2.5 p-4">
+              {warnings.length === 0 ? (
+                <EmptyState
+                  icon={ShieldCheck}
+                  title="No warnings"
+                  description="The workspace checks are within healthy thresholds."
+                />
+              ) : (
+                warnings.map((w, i) => (
+                  <WarningCard key={i} severity={inferSeverity(w)} title={w} />
+                ))
+              )}
+            </CardContent>
+          </Card>
+        </section>
+      </div>
+    </div>
   );
 }
+
+/** @deprecated use StatusResponse from types/api-contract */
+export type StatusPayload = StatusResponse;

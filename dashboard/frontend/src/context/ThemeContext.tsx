@@ -21,12 +21,11 @@ const STORAGE_KEY = "hayk-dashboard-theme";
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(() => {
-    if (typeof window === "undefined") return "light";
+    if (typeof window === "undefined") return "dark";
     const saved = localStorage.getItem(STORAGE_KEY) as Theme | null;
     if (saved === "dark" || saved === "light") return saved;
-    return window.matchMedia("(prefers-color-scheme: dark)").matches
-      ? "dark"
-      : "light";
+    /* Lovable hub defaults to dark control-center chrome */
+    return "dark";
   });
 
   useEffect(() => {

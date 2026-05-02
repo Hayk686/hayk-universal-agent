@@ -1,26 +1,32 @@
 import { useState } from "react";
-import { PageShell } from "../shell/PageShell";
-import { apiClient } from "../lib/api-client";
-import type { CommandRunResponse, HermesRunVariant } from "../types/api-contract";
+import { Cpu } from "lucide-react";
+import { PageShell } from "@/shell/PageShell";
+import { SectionHeader } from "@/components/section-header";
+import { TerminalOutput } from "@/components/terminal-output";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { api } from "@/lib/api";
+import type { CommandRunResponse } from "@/types/api-contract";
+import { WHITELIST_SHELL_COMMANDS } from "@/types/api-contract";
 
-const buttons: { label: string; variant: HermesRunVariant }[] = [
-  { label: "hermes status", variant: "status" },
-  { label: "hermes doctor", variant: "doctor" },
-  { label: 'hermes -z "Say exactly: OK"', variant: "ping" },
+const buttons: { label: string; command: string }[] = [
+  { label: "hermes status", command: WHITELIST_SHELL_COMMANDS.hermesStatus },
+  { label: "hermes doctor", command: WHITELIST_SHELL_COMMANDS.hermesDoctor },
+  { label: 'hermes -z "Say exactly: OK"', command: WHITELIST_SHELL_COMMANDS.hermesPing },
 ];
 
 export function HermesPage() {
   const [out, setOut] = useState<Record<string, CommandRunResponse | string>>({});
 
-  async function run(variant: HermesRunVariant) {
-    setOut((o) => ({ ...o, [variant]: "Running…" }));
+  async function run(command: string) {
+    setOut((o) => ({ ...o, [command]: "Running…" }));
     try {
-      const j = await apiClient.runHermes({ variant });
-      setOut((o) => ({ ...o, [variant]: j }));
+      const j = await api.runWhitelistedCommand(command);
+      setOut((o) => ({ ...o, [command]: j }));
     } catch (e) {
       setOut((o) => ({
         ...o,
-        [variant]: {
+        [command]: {
           exitCode: -1,
           output: e instanceof Error ? e.message : String(e),
         },
@@ -31,44 +37,64 @@ export function HermesPage() {
   return (
     <PageShell
       title="Hermes"
-      description="Fixed variants only (POST /api/hermes/run). No arbitrary shell — see docs/api-contract.md."
+      description="POST /api/commands/run — commands must match the server whitelist exactly. No arbitrary shell."
     >
-      <div className="flex flex-wrap gap-2 max-w-5xl">
-        {buttons.map((b) => (
-          <button
-            key={b.variant}
-            type="button"
-            onClick={() => void run(b.variant)}
-            className="rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
-          >
-            Run: {b.label}
-          </button>
-        ))}
-      </div>
       <div className="space-y-6 max-w-5xl">
-        {buttons.map((b) => {
-          const r = out[b.variant];
-          return (
-            <div
-              key={b.variant}
-              className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-sm"
+        <div className="space-y-1">
+          <SectionHeader
+            icon={Cpu}
+            title="Whitelist runner"
+            description="Each action maps to an exact server-approved string"
+          />
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {buttons.map((b) => (
+            <Button
+              key={b.command}
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => void run(b.command)}
             >
-              <div className="text-xs font-medium text-slate-500 mb-2">{b.label}</div>
-              {!r && <div className="text-sm text-slate-400">No output yet</div>}
-              {typeof r === "string" && <div className="text-sm">{r}</div>}
-              {r && typeof r !== "string" && (
-                <>
-                  <div className="text-xs mb-2">
-                    Exit code: <span className="font-mono">{r.exitCode}</span>
-                  </div>
-                  <pre className="log-box text-xs font-mono bg-slate-50 dark:bg-slate-950 p-3 rounded-lg border border-slate-200 dark:border-slate-800 max-h-96 overflow-auto">
-                    {r.output}
-                  </pre>
-                </>
-              )}
-            </div>
-          );
-        })}
+              Run: {b.label}
+            </Button>
+          ))}
+        </div>
+        <div className="grid gap-6">
+          {buttons.map((b) => {
+            const r = out[b.command];
+            const loading = typeof r === "string";
+            const body =
+              r && typeof r !== "string"
+                ? r.output
+                : loading
+                  ? ""
+                  : "";
+            const status =
+              !r || loading ? "idle" : r.exitCode === 0 ? "success" : "error";
+
+            return (
+              <Card key={b.command}>
+                <CardHeader className="py-3 border-b border-border">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">{b.label}</CardTitle>
+                </CardHeader>
+                <CardContent className="pt-4 space-y-2">
+                  {r && typeof r !== "string" && (
+                    <p className="text-xs text-muted-foreground">
+                      Exit code: <span className="font-mono">{r.exitCode}</span>
+                    </p>
+                  )}
+                  <TerminalOutput
+                    title={b.label.replace(/\s+/g, "-")}
+                    content={body}
+                    status={status}
+                    loading={loading}
+                  />
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
       </div>
     </PageShell>
   );

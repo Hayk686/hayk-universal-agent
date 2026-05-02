@@ -47,3 +47,11 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Local test/prototype folders
+_dashboard_test_ws/
+_hub-tmp/
+_lovable-hub/
+
+# TypeScript build cache
+*.tsbuildinfo

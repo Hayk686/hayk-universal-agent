@@ -1,33 +1,43 @@
 import { Outlet } from "react-router-dom";
 import { useTheme } from "../context/ThemeContext";
-import { Sidebar } from "./Sidebar";
+import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { AppSidebar } from "@/components/app-sidebar";
+import { Separator } from "@/components/ui/separator";
+import { Button } from "@/components/ui/button";
+import { SourceModeBadge } from "@/components/source-mode-badge";
 
 export function Layout() {
   const { theme, toggle } = useTheme();
   return (
-    <div
-      className="min-h-screen flex bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100"
-      data-app="hayk-dashboard-shell"
-    >
-      <Sidebar />
-      <div className="flex-1 flex flex-col min-w-0">
-        <header className="h-14 border-b border-slate-200 dark:border-slate-800 flex items-center justify-end px-4 gap-3 bg-white/80 dark:bg-slate-900/80 backdrop-blur shrink-0">
-          <span className="text-xs text-slate-500 dark:text-slate-400 hidden sm:inline">
-            Theme: {theme}
-          </span>
-          <button
-            type="button"
-            onClick={toggle}
-            className="rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-1.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
-            data-shell-theme-toggle
-          >
-            Toggle dark / light
-          </button>
-        </header>
-        <main className="flex-1 p-4 md:p-6 overflow-auto" data-shell-main>
-          <Outlet />
-        </main>
+    <SidebarProvider>
+      <div
+        className="flex min-h-[100dvh] w-full bg-background text-foreground"
+        data-app="hayk-dashboard-shell"
+      >
+        <AppSidebar />
+        <SidebarInset className="min-w-0">
+          <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border/80 bg-background/80 px-4 backdrop-blur-md">
+            <div className="flex min-w-0 items-center gap-3">
+              <SidebarTrigger className="shrink-0" />
+              <Separator orientation="vertical" className="hidden h-6 sm:block" />
+              <div className="hidden min-w-0 items-center gap-2 text-sm sm:flex">
+                <span className="truncate font-semibold tracking-tight">Hayk Universal Agent</span>
+                <span className="truncate text-muted-foreground">/ Raspberry Pi · Hermes</span>
+              </div>
+              <span className="truncate text-sm font-semibold tracking-tight sm:hidden">Hayk</span>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <SourceModeBadge />
+              <Button variant="outline" size="sm" type="button" onClick={toggle} data-shell-theme-toggle>
+                {theme === "dark" ? "Light" : "Dark"}
+              </Button>
+            </div>
+          </header>
+          <div className="flex-1 overflow-auto p-4 sm:p-6" data-shell-main>
+            <Outlet />
+          </div>
+        </SidebarInset>
       </div>
-    </div>
+    </SidebarProvider>
   );
 }

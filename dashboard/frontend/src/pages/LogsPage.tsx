@@ -1,74 +1,113 @@
 import { useEffect, useState } from "react";
-import { PageShell } from "../shell/PageShell";
-import { apiClient } from "../lib/api-client";
-import type { LogKind } from "../types/api-contract";
+import { ScrollText } from "lucide-react";
+import { PageShell } from "@/shell/PageShell";
+import { SectionHeader } from "@/components/section-header";
+import { TerminalOutput } from "@/components/terminal-output";
+import { Button } from "@/components/ui/button";
+import { api } from "@/lib/api";
 
 export function LogsPage() {
-  const [since, setSince] = useState<string | null>(null);
+  const [hermes, setHermes] = useState<string | null>(null);
   const [errors, setErrors] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [loading, setLoading] = useState<LogKind | null>(null);
+  const [loading, setLoading] = useState<"hermes" | "errors" | null>(null);
 
-  async function load(kind: LogKind) {
-    setLoading(kind);
+  async function loadHermes() {
+    setLoading("hermes");
     setErr(null);
     try {
-      const text = await apiClient.getLogs(kind);
-      if (kind === "since1h") setSince(text);
-      else setErrors(text);
+      setHermes(await api.getLogsHermes());
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      const msg = e instanceof Error ? e.message : String(e);
+      setErr(msg);
+      setHermes(`// Load failed: ${msg}`);
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  async function loadErrors() {
+    setLoading("errors");
+    setErr(null);
+    try {
+      setErrors(await api.getLogsErrors());
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setErr(msg);
+      setErrors(`// Load failed: ${msg}`);
     } finally {
       setLoading(null);
     }
   }
 
   useEffect(() => {
-    void load("since1h");
-    void load("errors");
+    void loadHermes();
+    void loadErrors();
   }, []);
 
   return (
     <PageShell
       title="Logs"
-      description="GET /api/logs/since1h and /api/logs/errors (last 300 lines). See docs/api-contract.md."
+      description="GET /api/logs/hermes (since 1h) and GET /api/logs/errors — last 300 lines each."
+      actions={
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            disabled={loading === "hermes"}
+            onClick={() => void loadHermes()}
+          >
+            Refresh Hermes
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            disabled={loading === "errors"}
+            onClick={() => void loadErrors()}
+          >
+            Refresh errors
+          </Button>
+        </div>
+      }
     >
-      <div className="flex flex-wrap gap-2 max-w-6xl">
-        <button
-          type="button"
-          className="rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-2 text-sm"
-          disabled={loading === "since1h"}
-          onClick={() => void load("since1h")}
-        >
-          Refresh: last hour
-        </button>
-        <button
-          type="button"
-          className="rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-2 text-sm"
-          disabled={loading === "errors"}
-          onClick={() => void load("errors")}
-        >
-          Refresh: errors
-        </button>
+      <div className="space-y-6 max-w-6xl">
+        <SectionHeader
+          icon={ScrollText}
+          title="Server log capture"
+          description="Tail-style views backed by the API"
+        />
+        {err && (
+          <div className="text-sm text-destructive border border-destructive/40 rounded-lg p-3">
+            {err}
+          </div>
+        )}
+
+        <div className="space-y-2">
+          <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            Hermes (since 1h)
+          </h3>
+          <TerminalOutput
+            title="hermes-log"
+            content={hermes ?? ""}
+            loading={hermes === null || loading === "hermes"}
+            status={hermes?.startsWith("// Load failed") ? "error" : "idle"}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            Hermes errors
+          </h3>
+          <TerminalOutput
+            title="hermes-errors"
+            content={errors ?? ""}
+            loading={errors === null || loading === "errors"}
+            status={errors?.startsWith("// Load failed") ? "error" : "idle"}
+          />
+        </div>
       </div>
-
-      {err && <div className="text-sm text-red-600">{err}</div>}
-
-      <section className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-sm max-w-6xl">
-        <h2 className="text-sm font-medium text-slate-500 mb-2">
-          hermes logs --since 1h
-        </h2>
-        <pre className="log-box text-xs font-mono bg-slate-50 dark:bg-slate-950 p-3 rounded-lg border border-slate-200 dark:border-slate-800 max-h-[28rem] overflow-auto">
-          {since ?? "Loading…"}
-        </pre>
-      </section>
-
-      <section className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-sm max-w-6xl">
-        <h2 className="text-sm font-medium text-slate-500 mb-2">hermes logs errors</h2>
-        <pre className="log-box text-xs font-mono bg-slate-50 dark:bg-slate-950 p-3 rounded-lg border border-slate-200 dark:border-slate-800 max-h-[28rem] overflow-auto">
-          {errors ?? "Loading…"}
-        </pre>
-      </section>
     </PageShell>
   );
 }

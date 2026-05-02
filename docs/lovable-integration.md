@@ -13,10 +13,11 @@
 ## Suggested merge workflow
 
 1. Freeze API usage in Lovable against **`docs/api-contract.md`** (or live `/openapi.json`).
-2. Port routes to match **`dashboard/frontend/src/shell/nav.ts`** (`path` + `label` + stable `id`).
-3. Replace or enhance **`PageShell`** children per page; keep `data-page-shell` / `data-app` hooks for E2E if useful.
-4. Map Lovable styles to **`src/styles/tokens.css`** CSS variables where possible so Tailwind classes can be refactored incrementally.
-5. Run `dashboard/backend` tests and manual smoke against a real `WORKSPACE_ROOT`.
+2. Port React routes to match **`dashboard/frontend/src/shell/nav.ts`** (`path` + `label` + stable `id`).
+3. Align fetch calls with **`src/lib/api-client.ts`**: `GET /api/files?folder=`, `GET /api/logs/hermes`, `GET /api/logs/errors`, Hermes actions only via **`POST /api/commands/run`** with whitelist strings.
+4. Replace or enhance **`PageShell`** children per page; keep `data-page-shell` / `data-app` hooks for E2E if useful.
+5. Map Lovable styles to **`src/styles/tokens.css`** CSS variables where possible so Tailwind classes can be refactored incrementally.
+6. Run `dashboard/backend` tests and manual smoke against a real `WORKSPACE_ROOT`.
 
 ## Contract changes
 

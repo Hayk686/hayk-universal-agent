@@ -1,9 +1,23 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { PageShell } from "../shell/PageShell";
-import { apiClient, okFromResponse } from "../lib/api-client";
-import { formatBytes, formatLocalTime } from "../lib/format";
-import type { FileEntry } from "../types/api-contract";
+import { BookOpen, Plus } from "lucide-react";
+import { PageShell } from "@/shell/PageShell";
+import { EmptyState } from "@/components/empty-state";
+import { FileTypeIcon } from "@/components/file-type-icon";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { api, okFromResponse } from "@/lib/api";
+import { formatBytes, formatRelative } from "@/lib/format";
+import type { FileEntry } from "@/types/api-contract";
 
 export function PlaybooksPage() {
   const [rows, setRows] = useState<FileEntry[]>([]);
@@ -13,7 +27,7 @@ export function PlaybooksPage() {
 
   async function load() {
     try {
-      const r = await apiClient.listPlaybooks();
+      const r = await api.listPlaybooks();
       setRows(r);
       setErr(null);
     } catch (e) {
@@ -33,7 +47,7 @@ export function PlaybooksPage() {
       return;
     }
     try {
-      await apiClient.createPlaybook({ name });
+      await api.createPlaybook({ name });
       setNewName("");
       await load();
     } catch (e) {
@@ -44,7 +58,7 @@ export function PlaybooksPage() {
   async function confirmDelete() {
     if (!pendingDelete) return;
     try {
-      const res = await apiClient.deletePlaybook(pendingDelete);
+      const res = await api.deletePlaybook(pendingDelete);
       await okFromResponse(res);
       setPendingDelete(null);
       await load();
@@ -56,98 +70,131 @@ export function PlaybooksPage() {
   return (
     <PageShell
       title="Playbooks"
-      description="Markdown in playbooks/ with timestamped backups on save. API: /api/playbooks — see docs/api-contract.md."
+      description="GET /api/playbooks · edit via GET/PUT /api/playbooks/{name}. POST creates a new file; DELETE removes one playbook."
+      actions={
+        <Button type="button" size="sm" variant="secondary" onClick={() => void load()}>
+          Refresh
+        </Button>
+      }
     >
       <div className="space-y-6">
-        <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-sm flex flex-col sm:flex-row gap-2 sm:items-end">
-          <div className="flex-1">
-            <label className="text-xs text-slate-500 block mb-1">New playbook (.md)</label>
-            <input
-              className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent px-3 py-2 text-sm"
-              value={newName}
-              placeholder="e.g. onboarding.md"
-              onChange={(e) => setNewName(e.target.value)}
-            />
-          </div>
-          <button
-            type="button"
-            onClick={() => void create()}
-            className="rounded-lg border border-slate-300 dark:border-slate-600 px-4 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
-          >
-            Create
-          </button>
-        </div>
+        <Card>
+          <CardHeader className="flex flex-row items-center gap-2 pb-4">
+            <Plus className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-base font-medium">New playbook</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-end">
+            <div className="flex-1 space-y-1.5">
+              <label htmlFor="pb-new" className="text-xs text-muted-foreground">
+                Filename (.md)
+              </label>
+              <Input
+                id="pb-new"
+                placeholder="e.g. onboarding.md"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+              />
+            </div>
+            <Button type="button" onClick={() => void create()}>
+              Create
+            </Button>
+          </CardContent>
+        </Card>
 
         {err && (
-          <div className="text-sm text-red-600 dark:text-red-400">{err}</div>
+          <div className="text-sm text-destructive border border-destructive/40 rounded-lg p-3">
+            {err}
+          </div>
         )}
 
-        <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm overflow-hidden">
-          <table className="min-w-full text-sm">
-            <thead className="bg-slate-50 dark:bg-slate-800/50 text-left text-xs text-slate-500 uppercase">
-              <tr>
-                <th className="px-4 py-2">Name</th>
-                <th className="px-4 py-2">Size</th>
-                <th className="px-4 py-2">Modified</th>
-                <th className="px-4 py-2 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="px-4 py-6 text-center text-slate-500">
-                    No playbooks yet
-                  </td>
-                </tr>
-              )}
-              {rows.map((row) => (
-                <tr key={row.path} className="border-t border-slate-100 dark:border-slate-800">
-                  <td className="px-4 py-2 font-mono text-xs">{row.name}</td>
-                  <td className="px-4 py-2">{formatBytes(row.size)}</td>
-                  <td className="px-4 py-2">{formatLocalTime(row.modified)}</td>
-                  <td className="px-4 py-2 text-right space-x-2 whitespace-nowrap">
-                    <Link
-                      to={`/playbooks/${encodeURIComponent(row.name)}`}
-                      className="text-sky-600 dark:text-sky-400 hover:underline"
-                    >
-                      Open
-                    </Link>
-                    <button
-                      type="button"
-                      className="text-red-600 dark:text-red-400 hover:underline"
-                      onClick={() => setPendingDelete(row.name)}
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <Card className="overflow-hidden">
+          <CardHeader className="flex flex-row items-center gap-2 border-b border-border py-4">
+            <BookOpen className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-base font-medium">All playbooks</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            {rows.length === 0 ? (
+              <div className="p-6">
+                <EmptyState
+                  icon={BookOpen}
+                  title="No playbooks yet"
+                  description="Create a new .md file above to get started."
+                />
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/50 hover:bg-muted/50">
+                    <TableHead className="px-4 text-xs font-medium uppercase text-muted-foreground">
+                      Name
+                    </TableHead>
+                    <TableHead className="px-4 text-xs font-medium uppercase text-muted-foreground">
+                      Type
+                    </TableHead>
+                    <TableHead className="px-4 text-xs font-medium uppercase text-muted-foreground">
+                      Size
+                    </TableHead>
+                    <TableHead className="px-4 text-xs font-medium uppercase text-muted-foreground">
+                      Modified
+                    </TableHead>
+                    <TableHead className="px-4 text-right text-xs font-medium uppercase text-muted-foreground">
+                      Actions
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {rows.map((row) => (
+                    <TableRow key={row.path}>
+                      <TableCell className="px-4 font-mono text-xs">{row.name}</TableCell>
+                      <TableCell className="px-4">
+                        <span className="inline-flex items-center gap-2">
+                          <FileTypeIcon ext={row.extension} />
+                          {row.extension}
+                        </span>
+                      </TableCell>
+                      <TableCell className="px-4">{formatBytes(row.size)}</TableCell>
+                      <TableCell className="px-4 whitespace-nowrap text-muted-foreground">
+                        <span title={row.modified}>{formatRelative(row.modified)}</span>
+                      </TableCell>
+                      <TableCell className="space-x-3 whitespace-nowrap px-4 text-right">
+                        <Link
+                          to={`/playbooks/${encodeURIComponent(row.name)}`}
+                          className="text-primary text-sm font-medium hover:underline"
+                        >
+                          Open
+                        </Link>
+                        <button
+                          type="button"
+                          className="text-destructive text-sm hover:underline"
+                          onClick={() => setPendingDelete(row.name)}
+                        >
+                          Delete
+                        </button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
 
         {pendingDelete && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-            <div className="max-w-md w-full rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-6 shadow-lg">
-              <h2 className="font-semibold">Delete playbook?</h2>
-              <p className="text-sm mt-2 font-mono break-all">{pendingDelete}</p>
-              <div className="mt-4 flex justify-end gap-2">
-                <button
-                  type="button"
-                  className="rounded-lg px-3 py-1.5 text-sm border border-slate-300 dark:border-slate-600"
-                  onClick={() => setPendingDelete(null)}
-                >
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+            <Card className="max-w-md w-full p-6 shadow-lg">
+              <h2 className="font-semibold text-lg">Delete playbook?</h2>
+              <p className="text-sm mt-2 font-mono break-all text-muted-foreground">
+                {pendingDelete}
+              </p>
+              <div className="mt-4 flex flex-wrap justify-end gap-2">
+                <Button variant="outline" type="button" onClick={() => setPendingDelete(null)}>
                   Cancel
-                </button>
-                <button
-                  type="button"
-                  className="rounded-lg px-3 py-1.5 text-sm bg-red-600 text-white"
-                  onClick={() => void confirmDelete()}
-                >
+                </Button>
+                <Button variant="destructive" type="button" onClick={() => void confirmDelete()}>
                   Delete
-                </button>
+                </Button>
               </div>
-            </div>
+            </Card>
           </div>
         )}
       </div>

@@ -30,6 +30,7 @@ _WHITELIST: tuple[str, ...] = (
     "ls -la /home/ubuntu/ai-office-agent-workspace/reports",
     "hermes status",
     "hermes doctor",
+    'hermes -z "Say exactly: OK"',
     "hermes logs --since 1h",
     "hermes logs errors",
     '/home/ubuntu/ai-office-agent-workspace/.venv/bin/python -c "import sys; print(sys.executable)"',

@@ -1,25 +1,47 @@
-import { useCallback, useEffect, useState } from "react";
-import { PageShell } from "../shell/PageShell";
-import { apiClient, downloadUrl } from "../lib/api-client";
-import { formatBytes, formatLocalTime } from "../lib/format";
-import type { FileEntry, FilesListResponse } from "../types/api-contract";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Folder, FolderOpen } from "lucide-react";
+import { PageShell } from "@/shell/PageShell";
+import { EmptyState } from "@/components/empty-state";
+import { FileTypeIcon } from "@/components/file-type-icon";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { api, downloadUrl } from "@/lib/api";
+import { formatBytes, formatRelative } from "@/lib/format";
+import type { FileEntry, FileFolder } from "@/types/api-contract";
 
-const sections = [
-  { key: "input" as const, title: "input/" },
-  { key: "output" as const, title: "output/" },
-  { key: "reports" as const, title: "reports/" },
+const sections: { key: FileFolder; title: string }[] = [
+  { key: "input", title: "input/" },
+  { key: "output", title: "output/" },
+  { key: "reports", title: "reports/" },
 ];
 
 export function FilesPage() {
-  const [data, setData] = useState<FilesListResponse | null>(null);
+  const [data, setData] = useState<Record<FileFolder, FileEntry[] | null>>({
+    input: null,
+    output: null,
+    reports: null,
+  });
   const [err, setErr] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     try {
-      const r = await apiClient.listFiles();
-      setData(r);
+      const [input, output, reports] = await Promise.all([
+        api.listFilesInFolder("input"),
+        api.listFilesInFolder("output"),
+        api.listFilesInFolder("reports"),
+      ]);
+      setData({ input, output, reports });
       setErr(null);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -36,7 +58,7 @@ export function FilesPage() {
     if (!f) return;
     setUploading(true);
     try {
-      await apiClient.uploadToInput(f);
+      await api.uploadToInput(f);
       await load();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -48,7 +70,7 @@ export function FilesPage() {
   async function confirmDelete() {
     if (!pendingDelete) return;
     try {
-      const res = await apiClient.deleteFile(pendingDelete);
+      const res = await api.deleteFile(pendingDelete);
       if (!res.ok) throw new Error(await res.text());
       setPendingDelete(null);
       await load();
@@ -57,127 +79,149 @@ export function FilesPage() {
     }
   }
 
-  if (!data && err)
+  const loading = data.input === null;
+
+  if (loading && err)
     return (
-      <div className="rounded-xl border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/40 p-4">
+      <div className="mx-auto max-w-7xl rounded-xl border border-destructive/40 bg-destructive/10 p-4 text-destructive">
         {err}
       </div>
     );
 
-  if (!data) return <div className="text-slate-500">Loading…</div>;
+  if (loading)
+    return (
+      <div className="mx-auto max-w-7xl text-sm text-muted-foreground animate-pulse">Loading…</div>
+    );
 
   return (
     <PageShell
       title="Files"
-      description="Browse input/, output/, and reports/. Upload goes to input/ only. API: GET /api/files/list — see docs/api-contract.md."
-      >
-      <div className="space-y-8">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-4">
-          <label className="inline-flex items-center gap-2 rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-2 text-sm cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 w-fit">
-            <input
-              type="file"
-              className="hidden"
-              onChange={onUpload}
-              disabled={uploading}
-            />
+      description="GET /api/files?folder=input|output|reports. Upload uses POST /api/files/upload (input/ only). Deletes use DELETE /api/files — protected paths blocked on the server."
+      actions={
+        <>
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="sr-only"
+            onChange={onUpload}
+            disabled={uploading}
+          />
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            disabled={uploading}
+            onClick={() => fileInputRef.current?.click()}
+          >
             {uploading ? "Uploading…" : "Upload to input/"}
-          </label>
-        </div>
-
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-6">
         {err && (
-          <div className="text-sm text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900 rounded-lg p-3">
+          <div className="text-sm text-destructive border border-destructive/40 rounded-lg p-3">
             {err}
           </div>
         )}
 
-        {sections.map((s) => (
-          <section
-            key={s.key}
-            className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm overflow-hidden"
-          >
-            <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 font-medium">
-              {s.title}
-            </div>
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead className="bg-slate-50 dark:bg-slate-800/50 text-left text-xs text-slate-500 uppercase">
-                  <tr>
-                    <th className="px-4 py-2">Name</th>
-                    <th className="px-4 py-2">Type</th>
-                    <th className="px-4 py-2">Size</th>
-                    <th className="px-4 py-2">Modified</th>
-                    <th className="px-4 py-2 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data[s.key].length === 0 && (
-                    <tr>
-                      <td colSpan={5} className="px-4 py-6 text-slate-500 text-center">
-                        No files
-                      </td>
-                    </tr>
-                  )}
-                  {(data[s.key] as FileEntry[]).map((row) => (
-                    <tr
-                      key={row.path}
-                      className="border-t border-slate-100 dark:border-slate-800"
-                    >
-                      <td className="px-4 py-2 font-mono text-xs">{row.name}</td>
-                      <td className="px-4 py-2">{row.extension}</td>
-                      <td className="px-4 py-2">{formatBytes(row.size)}</td>
-                      <td className="px-4 py-2 whitespace-nowrap">
-                        {formatLocalTime(row.modified)}
-                      </td>
-                      <td className="px-4 py-2 text-right space-x-2 whitespace-nowrap">
-                        <a
-                          href={downloadUrl(row.path)}
-                          className="text-sky-600 dark:text-sky-400 hover:underline"
-                        >
-                          Download
-                        </a>
-                        <button
-                          type="button"
-                          className="text-red-600 dark:text-red-400 hover:underline"
-                          onClick={() => setPendingDelete(row.path)}
-                        >
-                          Delete
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        ))}
+        <div className="grid gap-4">
+          {sections.map((s) => (
+            <Card key={s.key} className="overflow-hidden">
+              <CardHeader className="flex flex-row items-center gap-2 border-b border-border py-4">
+                <FolderOpen className="h-4 w-4 text-muted-foreground" />
+                <CardTitle className="text-base font-medium">{s.title}</CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                {data[s.key]!.length === 0 ? (
+                  <div className="p-6">
+                    <EmptyState
+                      icon={Folder}
+                      title="No files"
+                      description={`Nothing in ${s.title} yet.`}
+                    />
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/50 hover:bg-muted/50">
+                        <TableHead className="px-4 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                          Name
+                        </TableHead>
+                        <TableHead className="px-4 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                          Type
+                        </TableHead>
+                        <TableHead className="px-4 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                          Size
+                        </TableHead>
+                        <TableHead className="px-4 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                          Modified
+                        </TableHead>
+                        <TableHead className="px-4 text-right text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                          Actions
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {data[s.key]!.map((row) => (
+                        <TableRow key={row.path}>
+                          <TableCell className="px-4 font-mono text-xs">{row.name}</TableCell>
+                          <TableCell className="px-4">
+                            <span className="inline-flex items-center gap-2">
+                              {row.isDir ? (
+                                <Folder className="h-4 w-4 text-muted-foreground" />
+                              ) : (
+                                <FileTypeIcon ext={row.extension} />
+                              )}
+                              {row.isDir ? "dir" : row.extension}
+                            </span>
+                          </TableCell>
+                          <TableCell className="px-4">{formatBytes(row.size)}</TableCell>
+                          <TableCell className="px-4 whitespace-nowrap text-muted-foreground">
+                            <span title={row.modified}>{formatRelative(row.modified)}</span>
+                          </TableCell>
+                          <TableCell className="space-x-3 whitespace-nowrap px-4 text-right">
+                            <a
+                              href={downloadUrl(row.path)}
+                              className="text-primary text-sm font-medium hover:underline"
+                            >
+                              Download
+                            </a>
+                            <button
+                              type="button"
+                              className="text-destructive text-sm hover:underline"
+                              onClick={() => setPendingDelete(row.path)}
+                            >
+                              Delete
+                            </button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
 
         {pendingDelete && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-            <div className="max-w-md w-full rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-6 shadow-lg">
-              <h2 className="font-semibold">Delete file?</h2>
-              <p className="text-sm mt-2 break-all text-slate-600 dark:text-slate-300">
-                {pendingDelete}
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+            <Card className="max-w-md w-full p-6 shadow-lg">
+              <h2 className="font-semibold text-lg">Delete file?</h2>
+              <p className="text-sm mt-2 break-all text-muted-foreground">{pendingDelete}</p>
+              <p className="text-xs mt-2 text-warning">
+                Folders, AGENTS.md, playbooks, and .venv cannot be removed from this UI.
               </p>
-              <p className="text-xs mt-2 text-amber-700 dark:text-amber-300">
-                Folders and <code>.venv</code> cannot be removed from this UI.
-              </p>
-              <div className="mt-4 flex justify-end gap-2">
-                <button
-                  type="button"
-                  className="rounded-lg px-3 py-1.5 text-sm border border-slate-300 dark:border-slate-600"
-                  onClick={() => setPendingDelete(null)}
-                >
+              <div className="mt-4 flex flex-wrap justify-end gap-2">
+                <Button variant="outline" type="button" onClick={() => setPendingDelete(null)}>
                   Cancel
-                </button>
-                <button
-                  type="button"
-                  className="rounded-lg px-3 py-1.5 text-sm bg-red-600 text-white hover:bg-red-700"
-                  onClick={() => void confirmDelete()}
-                >
+                </Button>
+                <Button variant="destructive" type="button" onClick={() => void confirmDelete()}>
                   Delete
-                </button>
+                </Button>
               </div>
-            </div>
+            </Card>
           </div>
         )}
       </div>
