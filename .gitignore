@@ -1,0 +1,49 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+dist/
+
+# Dashboard local installs / builds
+dashboard/backend/.venv/
+dashboard/frontend/node_modules/
+dashboard/frontend/dist/
+
+# Runtime worktrees people might create inside the clone (do not commit)
+input/
+output/
+reports/
+*.bak.*
+*.tmp
+
+# Business / binary uploads (keep repo source-only)
+*.xlsx
+*.xls
+*.csv
+*.pdf
+*.zip
+
+# Secrets and local env
+.env
+.env.*
+!.env.example
+!**/.env.example
+
+# OS / editors
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# Logs
+*.log
