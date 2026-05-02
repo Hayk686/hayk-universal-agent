@@ -66,6 +66,13 @@ export type SaveBodyRequest = {
   content: string;
 };
 
+export type ChatSendResponse = {
+  response: string;
+  exitCode: number;
+  durationMs: number;
+  mode: "oneshot";
+};
+
 /** Exact strings accepted by POST /api/commands/run (must match backend whitelist). */
 export const WHITELIST_SHELL_COMMANDS = {
   hermesStatus: "hermes status",

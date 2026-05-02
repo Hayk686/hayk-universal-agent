@@ -7,6 +7,7 @@ import { AgentsMdPage } from "./pages/AgentsMdPage";
 import { PlaybooksPage } from "./pages/PlaybooksPage";
 import { PlaybookEditorPage } from "./pages/PlaybookEditorPage";
 import { HermesPage } from "./pages/HermesPage";
+import { ChatPage } from "./pages/ChatPage";
 import { LogsPage } from "./pages/LogsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 
@@ -22,6 +23,7 @@ export default function App() {
             <Route path="/playbooks" element={<PlaybooksPage />} />
             <Route path="/playbooks/:name" element={<PlaybookEditorPage />} />
             <Route path="/hermes" element={<HermesPage />} />
+            <Route path="/chat" element={<ChatPage />} />
             <Route path="/logs" element={<LogsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />

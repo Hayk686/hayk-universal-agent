@@ -15,6 +15,7 @@ export const NAV_ROUTES: NavRoute[] = [
   { id: "agents", path: "/agents", label: "AGENTS.md", end: true },
   { id: "playbooks", path: "/playbooks", label: "Playbooks", end: false },
   { id: "hermes", path: "/hermes", label: "Hermes", end: true },
+  { id: "chat", path: "/chat", label: "Agent Chat", end: true },
   { id: "logs", path: "/logs", label: "Logs", end: true },
   { id: "settings", path: "/settings", label: "Settings", end: true },
 ];

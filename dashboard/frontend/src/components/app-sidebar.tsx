@@ -5,6 +5,7 @@ import {
   FileEdit,
   BookOpen,
   Cpu,
+  MessageSquare,
   ScrollText,
   Settings as SettingsIcon,
   Bot,
@@ -41,6 +42,7 @@ const workspace: NavItem[] = [
 
 const runtime: NavItem[] = [
   { id: "hermes", title: "Hermes", path: "/hermes", icon: Cpu, end: true },
+  { id: "chat", title: "Agent Chat", path: "/chat", icon: MessageSquare, end: true },
   { id: "logs", title: "Logs", path: "/logs", icon: ScrollText, end: true },
   { id: "settings", title: "Settings", path: "/settings", icon: SettingsIcon, end: true },
 ];

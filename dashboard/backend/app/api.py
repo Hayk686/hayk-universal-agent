@@ -3,13 +3,14 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.config import AGENT_NAME, get_workspace_root
 from app.safety import is_whitelisted_command, list_whitelisted_commands, safe_join
@@ -360,6 +361,73 @@ async def get_logs_errors() -> PlainTextResponse:
 
 class CommandBody(BaseModel):
     command: str
+
+
+class ChatSendBody(BaseModel):
+    """One-shot Hermes message via ``hermes -z`` (no shell, argv list only)."""
+
+    message: str = Field(..., description="UTF-8 message passed to Hermes -z")
+
+    @field_validator("message")
+    @classmethod
+    def _validate_message(cls, v: str) -> str:
+        if not isinstance(v, str):
+            raise TypeError("message must be a string")
+        s = v.strip()
+        if not s:
+            raise ValueError("message must not be empty")
+        if len(s) > 8000:
+            raise ValueError("message exceeds maximum length of 8000 characters")
+        return s
+
+
+@router.post("/chat/send")
+async def chat_send(body: ChatSendBody, ws: Path = Depends(workspace_dep)) -> dict[str, Any]:
+    """Run ``hermes -z <message>`` from the workspace root; no user-controlled flags."""
+    started = time.monotonic()
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "hermes",
+            "-z",
+            body.message,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            cwd=str(ws),
+            env={**os.environ, "LC_ALL": "C.UTF-8"},
+        )
+    except OSError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to start Hermes: {exc}",
+        ) from exc
+
+    try:
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout=120.0)
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+        elapsed_ms = int((time.monotonic() - started) * 1000)
+        return {
+            "response": "Hermes timed out after 120 seconds.\n",
+            "exitCode": 124,
+            "durationMs": elapsed_ms,
+            "mode": "oneshot",
+        }
+
+    text = out.decode("utf-8", errors="replace")
+    code = proc.returncode if proc.returncode is not None else -1
+    elapsed_ms = int((time.monotonic() - started) * 1000)
+    response_text = text
+    if code != 0:
+        response_text = (
+            f"Hermes exited with code {code}.\n\n{response_text}".strip() + "\n"
+        ).strip()
+    return {
+        "response": response_text,
+        "exitCode": code,
+        "durationMs": elapsed_ms,
+        "mode": "oneshot",
+    }
 
 
 @router.get("/commands/whitelist")

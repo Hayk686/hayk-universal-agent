@@ -3,6 +3,7 @@
  */
 
 import type {
+  ChatSendResponse,
   CommandRunResponse,
   CommandsWhitelistResponse,
   FileEntry,
@@ -154,6 +155,15 @@ export const api = {
     const res = await client.postJson("/api/commands/run", { command });
     return parseJsonOrThrow<CommandRunResponse>(res);
   },
+
+  sendChatMessage: (message: string) =>
+    gate(
+      async () => {
+        const res = await client.postJson("/api/chat/send", { message });
+        return parseJsonOrThrow<ChatSendResponse>(res);
+      },
+      () => mocks.mockChatSend(message),
+    ),
 };
 
 function mockFileEntry(name: string): FileEntry {

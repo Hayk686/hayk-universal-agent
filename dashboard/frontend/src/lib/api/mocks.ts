@@ -3,6 +3,7 @@
  */
 
 import type {
+  ChatSendResponse,
   CommandRunResponse,
   CommandsWhitelistResponse,
   FileEntry,
@@ -91,6 +92,17 @@ export function mockRunCommand(command: string): Promise<CommandRunResponse> {
   return Promise.resolve({
     exitCode: 0,
     output: `[mock] Would run:\n${command}\n`,
+  });
+}
+
+export function mockChatSend(message: string): Promise<ChatSendResponse> {
+  const preview =
+    message.length > 120 ? `${message.slice(0, 120)}…` : message;
+  return Promise.resolve({
+    response: `[mock] Echo for: ${preview}\n`,
+    exitCode: 0,
+    durationMs: 12,
+    mode: "oneshot",
   });
 }
 
