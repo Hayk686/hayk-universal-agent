@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -151,3 +152,29 @@ def test_command_runner_rejects_arbitrary(workspace: Path) -> None:
     client = _client_for_workspace(workspace)
     r = client.post("/api/commands/run", json={"command": "echo hacked"})
     assert r.status_code == 400
+
+
+def test_status_venv_python_symlink_target_outside_workspace(tmp_path: Path) -> None:
+    """Regression: /api/status must not 403 when .venv/bin/python points outside ws."""
+    ws = tmp_path / "agent-workspace"
+    for sub in ("input", "output", "reports", "playbooks"):
+        (ws / sub).mkdir(parents=True)
+    (ws / "AGENTS.md").write_text("# agents", encoding="utf-8")
+    (ws / ".venv" / "bin").mkdir(parents=True)
+    outside = tmp_path / "outside_python_stub"
+    outside.write_text("#!/bin/sh\necho ok\n", encoding="utf-8")
+    outside.chmod(0o755)
+    link = ws / ".venv" / "bin" / "python"
+    try:
+        link.symlink_to(outside)
+    except OSError:
+        pytest.skip("Could not create symlink (OS permissions)")
+
+    client = _client_for_workspace(ws)
+    r = client.get("/api/status")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    norm_path = body["venv"]["pythonPath"].replace("\\", "/")
+    assert norm_path.endswith(".venv/bin/python")
+    if os.name != "nt":
+        assert body["venv"]["existsAndExecutable"] is True

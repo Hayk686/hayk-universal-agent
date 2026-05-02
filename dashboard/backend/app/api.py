@@ -16,6 +16,24 @@ from app.safety import is_whitelisted_command, list_whitelisted_commands, safe_j
 
 router = APIRouter()
 
+_VENV_PY_PARTS = (".venv", "bin", "python")
+
+
+def _venv_python_path(ws: Path) -> Path:
+    """Workspace .venv interpreter path without safe_join/resolve-to-target.
+
+    Standard virtualenvs symlink ``python`` to a system interpreter outside the
+    workspace; ``safe_join`` rejects those. We only require the symlink path (as
+    joined under the workspace root) to lie under that root — no target resolution.
+    """
+    workspace_root = ws.resolve()
+    candidate = workspace_root.joinpath(*_VENV_PY_PARTS)
+    try:
+        candidate.relative_to(workspace_root)
+    except ValueError as exc:
+        raise PermissionError("Venv python path escapes workspace") from exc
+    return candidate
+
 
 def workspace_dep() -> Path:
     return get_workspace_root()
@@ -68,7 +86,7 @@ def get_status(ws: Path = Depends(workspace_dep)) -> dict[str, Any]:
     input_d = safe_join(ws, "input")
     output_d = safe_join(ws, "output")
     reports_d = safe_join(ws, "reports")
-    venv_python = safe_join(ws, ".venv", "bin", "python")
+    venv_python = _venv_python_path(ws)
 
     venv_ok = venv_python.is_file() and os.access(venv_python, os.X_OK)
 
