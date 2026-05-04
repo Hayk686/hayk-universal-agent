@@ -156,10 +156,10 @@ export const api = {
     return parseJsonOrThrow<CommandRunResponse>(res);
   },
 
-  sendChatMessage: (message: string) =>
+  sendChatMessage: (message: string, init?: { signal?: AbortSignal }) =>
     gate(
       async () => {
-        const res = await client.postJson("/api/chat/send", { message });
+        const res = await client.postJson("/api/chat/send", { message }, init);
         return parseJsonOrThrow<ChatSendResponse>(res);
       },
       () => mocks.mockChatSend(message),

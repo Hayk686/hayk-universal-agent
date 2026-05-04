@@ -65,11 +65,16 @@ export async function putJson(path: string, data: unknown): Promise<Response> {
   });
 }
 
-export async function postJson(path: string, data: unknown): Promise<Response> {
+export async function postJson(
+  path: string,
+  data: unknown,
+  init?: Pick<RequestInit, "signal">,
+): Promise<Response> {
   return apiFetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
+    ...init,
   });
 }
 
