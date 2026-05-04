@@ -48,6 +48,7 @@ def test_chat_send_rejects_too_long_message(workspace, monkeypatch) -> None:
 
 
 def test_chat_send_uses_subprocess_exec_without_shell(workspace, monkeypatch) -> None:
+    monkeypatch.delenv("HERMES_BIN", raising=False)
     captured: dict = {}
 
     async def fake_create_subprocess_exec(*args, **kwargs):
@@ -75,3 +76,74 @@ def test_chat_send_uses_subprocess_exec_without_shell(workspace, monkeypatch) ->
     assert body["durationMs"] >= 0
     assert captured["args"] == ("hermes", "-z", "hello pi")
     assert captured["kwargs"]["cwd"] == str(workspace)
+
+
+def test_chat_send_uses_hermes_bin_when_set(workspace, monkeypatch) -> None:
+    monkeypatch.setenv("HERMES_BIN", "/home/ubuntu/.local/bin/hermes")
+    captured: dict = {}
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        assert "shell" not in kwargs
+        proc = MagicMock()
+        proc.communicate = AsyncMock(return_value=(b"ok\n", None))
+        proc.returncode = 0
+        proc.kill = MagicMock()
+        return proc
+
+    monkeypatch.setattr(
+        api_module.asyncio,
+        "create_subprocess_exec",
+        fake_create_subprocess_exec,
+    )
+    client = _client_for_workspace(workspace)
+    r = client.post("/api/chat/send", json={"message": "ping"})
+    assert r.status_code == 200
+    assert captured["args"] == ("/home/ubuntu/.local/bin/hermes", "-z", "ping")
+
+
+def test_logs_hermes_uses_hermes_bin_when_set(monkeypatch) -> None:
+    monkeypatch.setenv("HERMES_BIN", "/opt/hermes")
+    captured: dict = {}
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        captured["args"] = args
+        proc = MagicMock()
+        proc.communicate = AsyncMock(return_value=(b"log\n", None))
+        proc.returncode = 0
+        proc.kill = MagicMock()
+        return proc
+
+    monkeypatch.setattr(
+        api_module.asyncio,
+        "create_subprocess_exec",
+        fake_create_subprocess_exec,
+    )
+    client = TestClient(app)
+    r = client.get("/api/logs/hermes")
+    assert r.status_code == 200
+    assert captured["args"] == ("/opt/hermes", "logs", "--since", "1h")
+
+
+def test_logs_errors_uses_hermes_bin_when_set(monkeypatch) -> None:
+    monkeypatch.setenv("HERMES_BIN", "/opt/hermes")
+    captured: dict = {}
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        captured["args"] = args
+        proc = MagicMock()
+        proc.communicate = AsyncMock(return_value=(b"err\n", None))
+        proc.returncode = 0
+        proc.kill = MagicMock()
+        return proc
+
+    monkeypatch.setattr(
+        api_module.asyncio,
+        "create_subprocess_exec",
+        fake_create_subprocess_exec,
+    )
+    client = TestClient(app)
+    r = client.get("/api/logs/errors")
+    assert r.status_code == 200
+    assert captured["args"] == ("/opt/hermes", "logs", "errors")

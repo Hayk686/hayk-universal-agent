@@ -314,6 +314,19 @@ def delete_playbook(name: str, ws: Path = Depends(workspace_dep)) -> dict[str, s
     return {"ok": "true"}
 
 
+def _hermes_bin() -> str:
+    """Hermes executable for subprocess argv[0]; systemd may set ``HERMES_BIN`` to a full path."""
+    return os.environ.get("HERMES_BIN", "hermes")
+
+
+def _hermes_logs_since_argv() -> list[str]:
+    return [_hermes_bin(), "logs", "--since", "1h"]
+
+
+def _hermes_logs_errors_argv() -> list[str]:
+    return [_hermes_bin(), "logs", "errors"]
+
+
 async def _run_cmd(args: list[str], timeout: float = 120.0) -> tuple[int, str]:
     proc = await asyncio.create_subprocess_exec(
         *args,
@@ -334,12 +347,6 @@ async def _run_cmd(args: list[str], timeout: float = 120.0) -> tuple[int, str]:
     return code, text
 
 
-HERMES_LOG_CMDS: dict[str, list[str]] = {
-    "hermes": ["hermes", "logs", "--since", "1h"],
-    "errors": ["hermes", "logs", "errors"],
-}
-
-
 def _tail_lines(s: str, max_lines: int = 300) -> str:
     lines = s.splitlines()
     if len(lines) <= max_lines:
@@ -349,13 +356,13 @@ def _tail_lines(s: str, max_lines: int = 300) -> str:
 
 @router.get("/logs/hermes")
 async def get_logs_hermes() -> PlainTextResponse:
-    _, text = await _run_cmd(HERMES_LOG_CMDS["hermes"], timeout=180.0)
+    _, text = await _run_cmd(_hermes_logs_since_argv(), timeout=180.0)
     return PlainTextResponse(_tail_lines(text, 300), media_type="text/plain; charset=utf-8")
 
 
 @router.get("/logs/errors")
 async def get_logs_errors() -> PlainTextResponse:
-    _, text = await _run_cmd(HERMES_LOG_CMDS["errors"], timeout=180.0)
+    _, text = await _run_cmd(_hermes_logs_errors_argv(), timeout=180.0)
     return PlainTextResponse(_tail_lines(text, 300), media_type="text/plain; charset=utf-8")
 
 
@@ -387,7 +394,7 @@ async def chat_send(body: ChatSendBody, ws: Path = Depends(workspace_dep)) -> di
     started = time.monotonic()
     try:
         proc = await asyncio.create_subprocess_exec(
-            "hermes",
+            _hermes_bin(),
             "-z",
             body.message,
             stdout=asyncio.subprocess.PIPE,
