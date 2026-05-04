@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import shutil
 import time
 from datetime import datetime, timezone
@@ -386,6 +387,167 @@ class ChatSendBody(BaseModel):
         if len(s) > 8000:
             raise ValueError("message exceeds maximum length of 8000 characters")
         return s
+
+
+_SESSION_ID_LINE_RE = re.compile(r"^\s*session_id:\s*(\S+)\s*$", re.IGNORECASE)
+_RESUMED_SESSION_LINE_RE = re.compile(
+    r"^\s*(?:\u21bb\s+)?Resumed session\b.*$",
+    re.IGNORECASE,
+)
+_SESSION_ID_SAFE_RE = re.compile(r"^[a-zA-Z0-9_-]{1,128}$")
+
+
+def _parse_hermes_session_chat_stdout(raw: str) -> tuple[str, str | None, str | None]:
+    """Remove ``session_id:`` and resume banner lines; return response, id, optional warning."""
+    extracted: str | None = None
+    out_lines: list[str] = []
+    for line in raw.splitlines():
+        m = _SESSION_ID_LINE_RE.match(line)
+        if m:
+            extracted = m.group(1)
+            continue
+        if _RESUMED_SESSION_LINE_RE.match(line):
+            continue
+        out_lines.append(line)
+    text = "\n".join(out_lines).strip()
+    warning = None
+    if extracted is None:
+        warning = (
+            "Hermes did not emit a session_id line; the next message may start a new session."
+        )
+    return text, extracted, warning
+
+
+def _hermes_session_chat_argv(message: str, resume_id: str | None) -> list[str]:
+    """Fixed argv for ``hermes chat -q … -Q [--resume ID] --source tool -t …`` (no user flags)."""
+    exe = _hermes_bin()
+    if resume_id:
+        return [
+            exe,
+            "chat",
+            "-q",
+            message,
+            "-Q",
+            "--resume",
+            resume_id,
+            "--source",
+            "tool",
+            "-t",
+            "terminal,file,memory",
+        ]
+    return [
+        exe,
+        "chat",
+        "-q",
+        message,
+        "-Q",
+        "--source",
+        "tool",
+        "-t",
+        "terminal,file,memory",
+    ]
+
+
+class ChatSessionSendBody(BaseModel):
+    """Hermes persistent session turn via ``hermes chat -q -Q`` (optional ``--resume``)."""
+
+    message: str = Field(..., description="User message passed to Hermes -q")
+    sessionId: str | None = Field(
+        default=None,
+        description="Hermes session id from prior turn, or null to start",
+    )
+
+    @field_validator("message")
+    @classmethod
+    def _validate_session_message(cls, v: str) -> str:
+        if not isinstance(v, str):
+            raise TypeError("message must be a string")
+        s = v.strip()
+        if not s:
+            raise ValueError("message must not be empty")
+        if len(s) > 8000:
+            raise ValueError("message exceeds maximum length of 8000 characters")
+        return s
+
+    @field_validator("sessionId", mode="before")
+    @classmethod
+    def _coerce_session_id(cls, v: Any) -> str | None:
+        if v is None:
+            return None
+        if isinstance(v, str) and not v.strip():
+            return None
+        if not isinstance(v, str):
+            raise TypeError("sessionId must be a string or null")
+        return v.strip()
+
+    @field_validator("sessionId")
+    @classmethod
+    def _validate_session_id(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        if len(v) > 128:
+            raise ValueError("sessionId exceeds maximum length of 128 characters")
+        if not _SESSION_ID_SAFE_RE.fullmatch(v):
+            raise ValueError(
+                "sessionId must contain only letters, numbers, underscore, and hyphen",
+            )
+        return v
+
+
+@router.post("/chat/session-send")
+async def chat_session_send(
+    body: ChatSessionSendBody,
+    ws: Path = Depends(workspace_dep),
+) -> dict[str, Any]:
+    """Run ``hermes chat -q`` with optional ``--resume``; parse ``session_id`` from stdout."""
+    argv = _hermes_session_chat_argv(body.message, body.sessionId)
+    started = time.monotonic()
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *argv,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            cwd=str(ws),
+            env={**os.environ, "LC_ALL": "C.UTF-8"},
+        )
+    except OSError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to start Hermes: {exc}",
+        ) from exc
+
+    try:
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout=120.0)
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+        elapsed_ms = int((time.monotonic() - started) * 1000)
+        return {
+            "response": "Hermes timed out after 120 seconds.\n",
+            "sessionId": body.sessionId,
+            "exitCode": 124,
+            "durationMs": elapsed_ms,
+            "mode": "hermes-session",
+            "parseWarning": None,
+        }
+
+    raw = out.decode("utf-8", errors="replace")
+    code = proc.returncode if proc.returncode is not None else -1
+    elapsed_ms = int((time.monotonic() - started) * 1000)
+    response_text, parsed_sid, parse_warn = _parse_hermes_session_chat_stdout(raw)
+    if code != 0:
+        response_text_inner = response_text
+        response_text = (
+            f"Hermes exited with code {code}.\n\n{response_text_inner}".strip() + "\n"
+        ).strip()
+    return {
+        "response": response_text,
+        "sessionId": parsed_sid,
+        "exitCode": code,
+        "durationMs": elapsed_ms,
+        "mode": "hermes-session",
+        "parseWarning": parse_warn,
+    }
 
 
 @router.post("/chat/send")

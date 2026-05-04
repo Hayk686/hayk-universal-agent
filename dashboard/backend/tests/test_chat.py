@@ -126,6 +126,137 @@ def test_logs_hermes_uses_hermes_bin_when_set(monkeypatch) -> None:
     assert captured["args"] == ("/opt/hermes", "logs", "--since", "1h")
 
 
+def test_parse_hermes_session_strips_session_id_line() -> None:
+    raw = "OK\n\nsession_id: 20260504_152607_6384ed\n"
+    text, sid, warn = api_module._parse_hermes_session_chat_stdout(raw)
+    assert sid == "20260504_152607_6384ed"
+    assert text == "OK"
+    assert warn is None
+
+
+def test_parse_hermes_session_strips_resumed_banner() -> None:
+    raw = (
+        "\u21bb Resumed session 20260504_152607_6384ed ...\n\n"
+        "You asked earlier.\n\n"
+        "session_id: 20260504_152607_6384ed\n"
+    )
+    text, sid, warn = api_module._parse_hermes_session_chat_stdout(raw)
+    assert sid == "20260504_152607_6384ed"
+    assert "Resumed session" not in text
+    assert "session_id" not in text
+    assert "You asked earlier" in text
+    assert warn is None
+
+
+def test_parse_hermes_session_resumed_without_icon() -> None:
+    raw = "Resumed session abc\n\nHi\n\nsession_id: abc\n"
+    text, sid, _warn = api_module._parse_hermes_session_chat_stdout(raw)
+    assert sid == "abc"
+    assert "Resumed" not in text
+    assert text == "Hi"
+
+
+def test_parse_hermes_session_warns_when_no_session_id() -> None:
+    text, sid, warn = api_module._parse_hermes_session_chat_stdout("just text\n")
+    assert sid is None
+    assert text == "just text"
+    assert warn is not None
+
+
+def test_chat_session_first_message_no_resume_argv(workspace, monkeypatch) -> None:
+    monkeypatch.delenv("HERMES_BIN", raising=False)
+    captured: dict = {}
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        captured["args"] = args
+        assert "--resume" not in args
+        proc = MagicMock()
+        proc.communicate = AsyncMock(
+            return_value=(b"OK\n\nsession_id: sid_abc\n", None),
+        )
+        proc.returncode = 0
+        proc.kill = MagicMock()
+        return proc
+
+    monkeypatch.setattr(
+        api_module.asyncio,
+        "create_subprocess_exec",
+        fake_create_subprocess_exec,
+    )
+    client = _client_for_workspace(workspace)
+    r = client.post("/api/chat/session-send", json={"message": "hi"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["mode"] == "hermes-session"
+    assert body["sessionId"] == "sid_abc"
+    assert body["response"] == "OK"
+    assert captured["args"] == (
+        "hermes",
+        "chat",
+        "-q",
+        "hi",
+        "-Q",
+        "--source",
+        "tool",
+        "-t",
+        "terminal,file,memory",
+    )
+
+
+def test_chat_session_resume_includes_resume_argv(workspace, monkeypatch) -> None:
+    monkeypatch.delenv("HERMES_BIN", raising=False)
+    captured: dict = {}
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        captured["args"] = args
+        proc = MagicMock()
+        proc.communicate = AsyncMock(
+            return_value=(b"reply\n\nsession_id: sid_abc\n", None),
+        )
+        proc.returncode = 0
+        proc.kill = MagicMock()
+        return proc
+
+    monkeypatch.setattr(
+        api_module.asyncio,
+        "create_subprocess_exec",
+        fake_create_subprocess_exec,
+    )
+    client = _client_for_workspace(workspace)
+    sid = "20260504_152607_6384ed"
+    r = client.post(
+        "/api/chat/session-send",
+        json={"message": "next", "sessionId": sid},
+    )
+    assert r.status_code == 200
+    assert captured["args"] == (
+        "hermes",
+        "chat",
+        "-q",
+        "next",
+        "-Q",
+        "--resume",
+        sid,
+        "--source",
+        "tool",
+        "-t",
+        "terminal,file,memory",
+    )
+
+
+def test_chat_session_rejects_unsafe_session_id(workspace, monkeypatch) -> None:
+    async def _no_exec(*_a, **_kw):
+        raise AssertionError("subprocess should not run")
+
+    monkeypatch.setattr(api_module.asyncio, "create_subprocess_exec", _no_exec)
+    client = _client_for_workspace(workspace)
+    r = client.post(
+        "/api/chat/session-send",
+        json={"message": "x", "sessionId": "../../etc/passwd"},
+    )
+    assert r.status_code == 422
+
+
 def test_logs_errors_uses_hermes_bin_when_set(monkeypatch) -> None:
     monkeypatch.setenv("HERMES_BIN", "/opt/hermes")
     captured: dict = {}

@@ -4,6 +4,7 @@
 
 import type {
   ChatSendResponse,
+  ChatSessionSendResponse,
   CommandRunResponse,
   CommandsWhitelistResponse,
   FileEntry,
@@ -92,6 +93,25 @@ export function mockRunCommand(command: string): Promise<CommandRunResponse> {
   return Promise.resolve({
     exitCode: 0,
     output: `[mock] Would run:\n${command}\n`,
+  });
+}
+
+let _mockSessionSeq = 0;
+
+export function mockChatSessionSend(
+  message: string,
+  sessionId: string | null,
+): Promise<ChatSessionSendResponse> {
+  const sid = sessionId ?? `mock_sess_${++_mockSessionSeq}`;
+  const preview =
+    message.length > 80 ? `${message.slice(0, 80)}…` : message;
+  return Promise.resolve({
+    response: `[mock persistent] ${preview}`,
+    sessionId: sid,
+    exitCode: 0,
+    durationMs: 15,
+    mode: "hermes-session",
+    parseWarning: null,
   });
 }
 

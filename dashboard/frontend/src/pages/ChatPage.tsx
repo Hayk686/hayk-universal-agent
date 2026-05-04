@@ -1,24 +1,68 @@
 import { useEffect, useRef, useState } from "react";
-import { Loader2, MessageSquare, Send, XCircle } from "lucide-react";
+import { Bot, Loader2, MessageSquare, Send, Trash2, XCircle } from "lucide-react";
 import { PageShell } from "@/shell/PageShell";
 import { SectionHeader } from "@/components/section-header";
-import { TerminalOutput } from "@/components/terminal-output";
 import { WarningCard } from "@/components/warning-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
-import type { ChatSendResponse } from "@/types/api-contract";
+import type { ChatSendResponse, ChatSessionSendResponse } from "@/types/api-contract";
 
+const LS_SESSION = "hayk-agent-chat-session-id";
+const LS_HISTORY = "hayk-agent-chat-history-v1";
 const CHAT_CLIENT_ABORT_AFTER_MS = 125_000;
 
 const PROGRESS_LINES = [
-  "Starting Hermes...",
-  "Sending message to model...",
-  "Waiting for response...",
-  "This can take 20–30 seconds in one-shot mode.",
+  "Starting Hermes…",
+  "Sending message to model…",
+  "Waiting for response…",
+  "Persistent sessions can still take 20–30 seconds per turn.",
 ] as const;
+
+type TurnMode = "hermes-session" | "oneshot";
+
+type HistoryMsg = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  exitCode?: number;
+  durationMs?: number;
+  mode?: TurnMode;
+};
+
+function uid(): string {
+  return crypto.randomUUID();
+}
+
+function readStoredSession(): string | null {
+  try {
+    const s = localStorage.getItem(LS_SESSION);
+    if (!s?.trim()) return null;
+    return s.trim();
+  } catch {
+    return null;
+  }
+}
+
+function readStoredHistory(): HistoryMsg[] {
+  try {
+    const raw = localStorage.getItem(LS_HISTORY);
+    if (!raw) return [];
+    const p = JSON.parse(raw) as unknown;
+    if (!Array.isArray(p)) return [];
+    return p.filter(
+      (m): m is HistoryMsg =>
+        !!m &&
+        typeof m === "object" &&
+        (m as HistoryMsg).role !== undefined &&
+        typeof (m as HistoryMsg).content === "string",
+    );
+  } catch {
+    return [];
+  }
+}
 
 function progressHeadline(elapsedSec: number): string {
   if (elapsedSec < 6) return PROGRESS_LINES[0];
@@ -36,14 +80,35 @@ function progressStepIndex(elapsedSec: number): number {
 
 export function ChatPage() {
   const [input, setInput] = useState("");
-  const [result, setResult] = useState<ChatSendResponse | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(readStoredSession);
+  const [history, setHistory] = useState<HistoryMsg[]>(readStoredHistory);
   const [httpError, setHttpError] = useState<string | null>(null);
   const [cancelNote, setCancelNote] = useState<string | null>(null);
+  const [fallbackNote, setFallbackNote] = useState<string | null>(null);
+  const [parseWarning, setParseWarning] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [elapsedSec, setElapsedSec] = useState(0);
   const abortRef = useRef<AbortController | null>(null);
   const abortReasonRef = useRef<"user" | "timeout" | null>(null);
   const loadStartedAt = useRef<number>(0);
+  const historyEndRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    try {
+      if (sessionId) localStorage.setItem(LS_SESSION, sessionId);
+      else localStorage.removeItem(LS_SESSION);
+    } catch {
+      /* ignore */
+    }
+  }, [sessionId]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(LS_HISTORY, JSON.stringify(history));
+    } catch {
+      /* ignore */
+    }
+  }, [history]);
 
   useEffect(() => {
     if (!loading) {
@@ -57,6 +122,31 @@ export function ChatPage() {
     }, 500);
     return () => window.clearInterval(id);
   }, [loading]);
+
+  useEffect(() => {
+    historyEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [history, loading]);
+
+  function applySessionResult(data: ChatSessionSendResponse) {
+    setParseWarning(typeof data.parseWarning === "string" ? data.parseWarning : null);
+    setSessionId((prev) => data.sessionId ?? prev);
+  }
+
+  function appendExchange(userText: string, data: ChatSessionSendResponse | ChatSendResponse) {
+    const mode: TurnMode = data.mode === "oneshot" ? "oneshot" : "hermes-session";
+    setHistory((h) => [
+      ...h,
+      { id: uid(), role: "user", content: userText },
+      {
+        id: uid(),
+        role: "assistant",
+        content: data.response,
+        exitCode: data.exitCode,
+        durationMs: data.durationMs,
+        mode,
+      },
+    ]);
+  }
 
   async function send() {
     const message = input.trim();
@@ -72,11 +162,28 @@ export function ChatPage() {
 
     setHttpError(null);
     setCancelNote(null);
-    setResult(null);
+    setFallbackNote(null);
+    setParseWarning(null);
     setLoading(true);
+    const sid = sessionId;
     try {
-      const data = await api.sendChatMessage(message, { signal: ac.signal });
-      setResult(data);
+      try {
+        const data = await api.sendSessionChatMessage(message, sid, { signal: ac.signal });
+        applySessionResult(data);
+        appendExchange(message, data);
+        setInput("");
+      } catch (firstErr) {
+        const aborted =
+          (firstErr instanceof DOMException && firstErr.name === "AbortError") ||
+          (firstErr instanceof Error && firstErr.name === "AbortError");
+        if (aborted) throw firstErr;
+        const data = await api.sendChatMessage(message, { signal: ac.signal });
+        setFallbackNote(
+          "Session chat failed — used one-shot fallback (new Hermes process). Your transcript is still shown below.",
+        );
+        appendExchange(message, data);
+        setInput("");
+      }
     } catch (e) {
       const aborted =
         (e instanceof DOMException && e.name === "AbortError") ||
@@ -109,34 +216,130 @@ export function ChatPage() {
     abortRef.current.abort();
   }
 
+  function newSession() {
+    setSessionId(null);
+    setHistory([]);
+    setParseWarning(null);
+    setFallbackNote(null);
+    try {
+      localStorage.removeItem(LS_SESSION);
+      localStorage.removeItem(LS_HISTORY);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function clearLocalHistory() {
+    setHistory([]);
+    setFallbackNote(null);
+  }
+
   const headline = loading ? progressHeadline(elapsedSec) : "";
   const activeStep = loading ? progressStepIndex(elapsedSec) : -1;
-
-  const outStatus =
-    result == null ? "idle" : result.exitCode === 0 ? "success" : "error";
 
   return (
     <PageShell
       title="Agent Chat"
-      description="POST /api/chat/send — one-shot Hermes message from the workspace (no streaming yet)."
+      description="POST /api/chat/session-send — Hermes chat -q -Q with optional --resume (browser history is local only for now)."
     >
       <div className="max-w-5xl space-y-6">
         <SectionHeader
           icon={MessageSquare}
           title="Message Hermes"
-          description="Each send runs hermes -z with your text from the configured workspace root"
+          description="Conversation uses a persistent Hermes session id when available; history below is stored in this browser only."
           action={
             <Badge variant="secondary" className="shrink-0">
-              One-shot mode
+              Persistent Hermes Session
             </Badge>
           }
         />
 
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" size="sm" variant="outline" onClick={newSession}>
+            New Session
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={clearLocalHistory}
+            disabled={history.length === 0}
+          >
+            <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+            Clear Local History
+          </Button>
+          <span className="font-mono text-[10px] text-muted-foreground sm:ml-auto">
+            Hermes session: {sessionId ?? "— (next send starts new)"}
+          </span>
+        </div>
+
         <WarningCard
           severity="info"
-          title="MVP"
-          description="This MVP sends one message at a time. Persistent sessions will be added later."
+          title="Local history only"
+          description="This page remembers messages in your browser. Server-side chat history and SQLite are not enabled yet."
         />
+
+        {fallbackNote && (
+          <WarningCard severity="warning" title="Fallback mode" description={fallbackNote} />
+        )}
+        {parseWarning && (
+          <WarningCard severity="warning" title="Session id" description={parseWarning} />
+        )}
+
+        <Card>
+          <CardHeader className="border-b border-border pb-3">
+            <CardTitle className="text-sm font-medium">Conversation</CardTitle>
+            <CardDescription>
+              Scroll for earlier turns. Assistant replies use the same workspace as the backend.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="max-h-[min(55vh,28rem)] space-y-3 overflow-y-auto pt-4">
+            {history.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No messages yet — send one below.</p>
+            ) : (
+              history.map((m) => (
+                <div
+                  key={m.id}
+                  className={cn(
+                    "flex gap-2",
+                    m.role === "user" ? "justify-end" : "justify-start",
+                  )}
+                >
+                  <div
+                    className={cn(
+                      "max-w-[92%] rounded-xl border px-3 py-2.5 text-sm shadow-sm",
+                      m.role === "user"
+                        ? "border-primary/25 bg-primary/10 text-foreground"
+                        : "border-border bg-card text-foreground",
+                    )}
+                  >
+                    {m.role === "assistant" && (
+                      <div className="mb-1.5 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+                        <Bot className="h-3 w-3" />
+                        <span>Hermes</span>
+                        {m.mode && (
+                          <span className="font-mono normal-case">· {m.mode}</span>
+                        )}
+                      </div>
+                    )}
+                    <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed">
+                      {m.content}
+                    </pre>
+                    {m.role === "assistant" &&
+                      m.exitCode !== undefined &&
+                      m.durationMs !== undefined && (
+                        <p className="mt-2 border-t border-border/60 pt-2 font-mono text-[10px] text-muted-foreground">
+                          Exit {m.exitCode} · {(m.durationMs / 1000).toFixed(1)}s · {m.durationMs}{" "}
+                          ms
+                        </p>
+                      )}
+                  </div>
+                </div>
+              ))
+            )}
+            <div ref={historyEndRef} />
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader className="border-b border-border pb-3">
@@ -247,43 +450,6 @@ export function ChatPage() {
               <pre className="max-h-[240px] overflow-auto whitespace-pre-wrap break-words rounded-md border border-destructive/30 bg-background/80 p-3 font-mono text-xs text-foreground">
                 {httpError}
               </pre>
-            </CardContent>
-          </Card>
-        )}
-
-        {result && (
-          <Card>
-            <CardHeader className="border-b border-border pb-3">
-              <CardTitle className="text-sm font-medium">Hermes response</CardTitle>
-              <CardDescription className="text-pretty">
-                Exit code{" "}
-                <span className="font-mono text-foreground/90">{result.exitCode}</span>
-                {" · "}
-                <span className="font-mono text-foreground/90" title={`${result.durationMs} ms`}>
-                  {(result.durationMs / 1000).toFixed(1)}s
-                </span>{" "}
-                wall ·{" "}
-                <span className="font-mono text-foreground/90">{result.durationMs} ms</span>
-                {" · "}
-                <span className="font-mono text-foreground/90">{result.mode}</span>
-              </CardDescription>
-            </CardHeader>
-            {result.exitCode === 124 && (
-              <CardContent className="pb-0 pt-4">
-                <WarningCard
-                  severity="warning"
-                  title="Hermes timed out"
-                  description="The server stopped this run after 120 seconds (one-shot limit). Try a shorter question or simpler task."
-                />
-              </CardContent>
-            )}
-            <CardContent className={cn("pt-4", result.exitCode === 124 && "pt-3")}>
-              <TerminalOutput
-                title="hermes-z"
-                content={result.response}
-                status={outStatus}
-                loading={false}
-              />
             </CardContent>
           </Card>
         )}

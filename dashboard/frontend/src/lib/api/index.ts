@@ -4,6 +4,7 @@
 
 import type {
   ChatSendResponse,
+  ChatSessionSendResponse,
   CommandRunResponse,
   CommandsWhitelistResponse,
   FileEntry,
@@ -155,6 +156,23 @@ export const api = {
     const res = await client.postJson("/api/commands/run", { command });
     return parseJsonOrThrow<CommandRunResponse>(res);
   },
+
+  sendSessionChatMessage: (
+    message: string,
+    sessionId: string | null,
+    init?: { signal?: AbortSignal },
+  ) =>
+    gate(
+      async () => {
+        const res = await client.postJson(
+          "/api/chat/session-send",
+          { message, sessionId: sessionId ?? null },
+          init,
+        );
+        return parseJsonOrThrow<ChatSessionSendResponse>(res);
+      },
+      () => mocks.mockChatSessionSend(message, sessionId),
+    ),
 
   sendChatMessage: (message: string, init?: { signal?: AbortSignal }) =>
     gate(

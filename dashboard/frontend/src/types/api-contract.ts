@@ -73,6 +73,15 @@ export type ChatSendResponse = {
   mode: "oneshot";
 };
 
+export type ChatSessionSendResponse = {
+  response: string;
+  sessionId: string | null;
+  exitCode: number;
+  durationMs: number;
+  mode: "hermes-session";
+  parseWarning?: string | null;
+};
+
 /** Exact strings accepted by POST /api/commands/run (must match backend whitelist). */
 export const WHITELIST_SHELL_COMMANDS = {
   hermesStatus: "hermes status",
