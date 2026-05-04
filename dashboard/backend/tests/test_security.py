@@ -141,8 +141,11 @@ def test_command_runner_rejects_arbitrary(workspace: Path) -> None:
     assert r.status_code == 400
 
 
-def test_status_venv_python_symlink_target_outside_workspace(tmp_path: Path) -> None:
+def test_status_venv_python_symlink_target_outside_workspace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Regression: /api/status must not 403 when .venv/bin/python points outside ws."""
+    monkeypatch.delenv("CHAT_TIMEOUT_SECONDS", raising=False)
     ws = tmp_path / "agent-workspace"
     for sub in ("input", "output", "reports", "playbooks"):
         (ws / sub).mkdir(parents=True)
@@ -161,6 +164,7 @@ def test_status_venv_python_symlink_target_outside_workspace(tmp_path: Path) -> 
     r = client.get("/api/status")
     assert r.status_code == 200, r.text
     body = r.json()
+    assert body["chatTimeoutSeconds"] == 300
     norm_path = body["venv"]["pythonPath"].replace("\\", "/")
     assert norm_path.endswith(".venv/bin/python")
     if os.name != "nt":

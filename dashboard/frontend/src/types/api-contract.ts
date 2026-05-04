@@ -38,6 +38,8 @@ export type StatusResponse = {
     pythonPath: string;
     existsAndExecutable: boolean;
   };
+  /** Max seconds the server waits on each Agent Chat Hermes subprocess. */
+  chatTimeoutSeconds: number;
 };
 
 export type SaveMarkdownResponse = {

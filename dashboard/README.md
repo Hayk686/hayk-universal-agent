@@ -15,7 +15,8 @@ On the Pi, after cloning the repo (example path `/home/ubuntu/hayk-universal-age
 
 1. **Backend env** — copy **`dashboard/backend/.env.example`** to `dashboard/backend/.env` (or set the same variables in systemd).  
    Set **`WORKSPACE_ROOT`** to your agent workspace (default: `/home/ubuntu/ai-office-agent-workspace`).  
-   **`HERMES_BIN`** and **`PYTHON_BIN`** document the expected layout on the Pi. The API does **not** read `~/.hermes/.env`. The command runner remains **whitelist-only** per **`docs/api-contract.md`**.
+   **`HERMES_BIN`** and **`PYTHON_BIN`** document the expected layout on the Pi. The API does **not** read `~/.hermes/.env`. The command runner remains **whitelist-only** per **`docs/api-contract.md`**.  
+   **`CHAT_TIMEOUT_SECONDS`** (default **300**, range 30–600) caps how long Agent Chat waits on each Hermes run (`/api/chat/send`, `/api/chat/session-send`).
 
 2. **Frontend env** — copy **`dashboard/frontend/.env.example`** to `dashboard/frontend/.env` when the UI should call the API on another host (e.g. Tailscale IP **`http://100.120.203.58:8080`**).  
    Resolution order: **`VITE_API_BASE_URL`** → **`VITE_API_BASE`** → empty string (Vite dev **proxy** to `localhost:8080`).  
@@ -60,7 +61,7 @@ See **`docs/dashboard-deploy.md`** for a sample unit file.
 ## Environment
 
 - **`dashboard/frontend/.env.example`** — `VITE_API_BASE_URL`, `VITE_USE_MOCKS`, optional `VITE_API_BASE`.
-- **`dashboard/backend/.env.example`** — `WORKSPACE_ROOT`, optional `CORS_ORIGINS`, `DASH_AGENT_NAME`, `HERMES_BIN`, `PYTHON_BIN` (documentation / Pi layout). Optional **`DASHBOARD_API_KEY`** only if you enable API key auth; never commit real keys.
+- **`dashboard/backend/.env.example`** — `WORKSPACE_ROOT`, optional `CORS_ORIGINS`, `DASH_AGENT_NAME`, `HERMES_BIN`, `PYTHON_BIN` (documentation / Pi layout), **`CHAT_TIMEOUT_SECONDS`** (Agent Chat Hermes timeout, default 300). Optional **`DASHBOARD_API_KEY`** only if you enable API key auth; never commit real keys.
 - Repo root **`../.env.example`** may define shared variables used elsewhere in the monorepo.
 
 ---

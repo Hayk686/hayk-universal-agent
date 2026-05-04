@@ -44,6 +44,7 @@ export function mockStatus(): Promise<StatusResponse> {
       pythonPath: ".venv/bin/python (mock)",
       existsAndExecutable: true,
     },
+    chatTimeoutSeconds: 300,
   });
 }
 

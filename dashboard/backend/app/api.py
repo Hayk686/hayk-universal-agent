@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel, Field, field_validator
 
-from app.config import AGENT_NAME, get_workspace_root
+from app.config import AGENT_NAME, get_chat_timeout_seconds, get_workspace_root
 from app.safety import is_whitelisted_command, list_whitelisted_commands, safe_join
 
 router = APIRouter()
@@ -115,6 +115,7 @@ def get_status(ws: Path = Depends(workspace_dep)) -> dict[str, Any]:
             "pythonPath": str(venv_python),
             "existsAndExecutable": venv_ok,
         },
+        "chatTimeoutSeconds": get_chat_timeout_seconds(),
     }
 
 
@@ -500,6 +501,7 @@ async def chat_session_send(
     ws: Path = Depends(workspace_dep),
 ) -> dict[str, Any]:
     """Run ``hermes chat -q`` with optional ``--resume``; parse ``session_id`` from stdout."""
+    timeout_sec = get_chat_timeout_seconds()
     argv = _hermes_session_chat_argv(body.message, body.sessionId)
     started = time.monotonic()
     try:
@@ -517,13 +519,16 @@ async def chat_session_send(
         ) from exc
 
     try:
-        out, _ = await asyncio.wait_for(proc.communicate(), timeout=120.0)
+        out, _ = await asyncio.wait_for(
+            proc.communicate(),
+            timeout=float(timeout_sec),
+        )
     except asyncio.TimeoutError:
         proc.kill()
         await proc.wait()
         elapsed_ms = int((time.monotonic() - started) * 1000)
         return {
-            "response": "Hermes timed out after 120 seconds.\n",
+            "response": f"Hermes timed out after {timeout_sec} seconds.\n",
             "sessionId": body.sessionId,
             "exitCode": 124,
             "durationMs": elapsed_ms,
@@ -553,6 +558,7 @@ async def chat_session_send(
 @router.post("/chat/send")
 async def chat_send(body: ChatSendBody, ws: Path = Depends(workspace_dep)) -> dict[str, Any]:
     """Run ``hermes -z <message>`` from the workspace root; no user-controlled flags."""
+    timeout_sec = get_chat_timeout_seconds()
     started = time.monotonic()
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -571,13 +577,16 @@ async def chat_send(body: ChatSendBody, ws: Path = Depends(workspace_dep)) -> di
         ) from exc
 
     try:
-        out, _ = await asyncio.wait_for(proc.communicate(), timeout=120.0)
+        out, _ = await asyncio.wait_for(
+            proc.communicate(),
+            timeout=float(timeout_sec),
+        )
     except asyncio.TimeoutError:
         proc.kill()
         await proc.wait()
         elapsed_ms = int((time.monotonic() - started) * 1000)
         return {
-            "response": "Hermes timed out after 120 seconds.\n",
+            "response": f"Hermes timed out after {timeout_sec} seconds.\n",
             "exitCode": 124,
             "durationMs": elapsed_ms,
             "mode": "oneshot",

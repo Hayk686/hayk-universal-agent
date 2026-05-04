@@ -13,7 +13,10 @@ import type { ChatSendResponse, ChatSessionSendResponse } from "@/types/api-cont
 const LS_SESSION = "hayk-agent-chat-session-id";
 const LS_HISTORY = "hayk-agent-chat-history-v1";
 const LS_MODE = "hayk-agent-chat-mode";
-const CHAT_CLIENT_ABORT_AFTER_MS = 125_000;
+const CHAT_CLIENT_ABORT_BUFFER_MS = 15_000;
+
+const TIMEOUT_HELP =
+  "Hermes timed out. Try a shorter prompt, switch model/provider, or increase CHAT_TIMEOUT_SECONDS.";
 
 type ChatMode = "fast" | "session";
 
@@ -104,18 +107,25 @@ export function ChatPage() {
   const [sessionTimeoutHint, setSessionTimeoutHint] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [elapsedSec, setElapsedSec] = useState(0);
+  const [chatTimeoutSec, setChatTimeoutSec] = useState(300);
   const abortRef = useRef<AbortController | null>(null);
   const abortReasonRef = useRef<"user" | "timeout" | null>(null);
   const loadStartedAt = useRef<number>(0);
   const historyEndRef = useRef<HTMLDivElement | null>(null);
 
-  const progressLines = useMemo(() => {
-    const tail =
-      chatMode === "fast"
-        ? "Fast mode still runs a full Hermes turn — allow ~20–30 seconds."
-        : "Session mode may be slower on some devices; switch to Fast mode if you see timeouts.";
-    return [...PROGRESS_LINES_BASE, tail];
-  }, [chatMode]);
+  const progressLines = useMemo(
+    () => [...PROGRESS_LINES_BASE, "Complex requests can take a few minutes."],
+    [],
+  );
+
+  useEffect(() => {
+    void api.getStatus().then((s) => {
+      const sec = s.chatTimeoutSeconds;
+      if (typeof sec === "number" && Number.isFinite(sec)) {
+        setChatTimeoutSec(Math.max(30, Math.min(600, Math.floor(sec))));
+      }
+    });
+  }, []);
 
   useEffect(() => {
     try {
@@ -187,10 +197,11 @@ export function ChatPage() {
     abortRef.current = ac;
     abortReasonRef.current = null;
 
+    const serverTimeoutMs = Math.max(30_000, chatTimeoutSec * 1000 + CHAT_CLIENT_ABORT_BUFFER_MS);
     const tid = window.setTimeout(() => {
       abortReasonRef.current = "timeout";
       ac.abort();
-    }, CHAT_CLIENT_ABORT_AFTER_MS);
+    }, serverTimeoutMs);
 
     const modeNow = chatMode;
     setHttpError(null);
@@ -200,20 +211,23 @@ export function ChatPage() {
     setLoading(true);
     const sid = sessionId;
     try {
+      let data: ChatSendResponse | ChatSessionSendResponse;
       if (modeNow === "fast") {
-        const data = await api.sendChatMessage(message, { signal: ac.signal });
+        data = await api.sendChatMessage(message, { signal: ac.signal });
         appendExchange(message, data);
         setInput("");
       } else {
-        const data = await api.sendSessionChatMessage(message, sid, { signal: ac.signal });
+        data = await api.sendSessionChatMessage(message, sid, { signal: ac.signal });
         applySessionResult(data);
         appendExchange(message, data);
-        if (data.exitCode === 124) {
-          setSessionTimeoutHint(
-            "Hermes timed out on this session-style run (120s). On Raspberry Pi, Session mode is often slower — switch to Fast mode (one-shot) above for quicker, more reliable replies.",
-          );
-        }
         setInput("");
+      }
+      if (data.exitCode === 124) {
+        const extra =
+          modeNow === "session"
+            ? " Session mode on a Pi is often slower — you can also try Fast mode in the toggle above."
+            : "";
+        setSessionTimeoutHint(`${TIMEOUT_HELP}${extra}`);
       }
     } catch (e) {
       const aborted =
@@ -223,13 +237,11 @@ export function ChatPage() {
         const reason = abortReasonRef.current;
         abortReasonRef.current = null;
         if (reason === "timeout") {
-          const base =
-            "This request ran longer than 120 seconds; the client stopped waiting or the server hit its Hermes timeout.";
-          const hint =
+          const extra =
             modeNow === "session"
-              ? ` ${base} Session mode is often slower on a Pi — try Fast mode (one-shot) using the toggle at the top of this page.`
-              : ` ${base} Try a shorter message or try again.`;
-          setHttpError(hint.trim());
+              ? " Session mode on a Pi is often slower — you can also try Fast mode in the toggle above."
+              : "";
+          setHttpError(`${TIMEOUT_HELP}${extra}`);
         } else {
           setCancelNote(
             "Request cancelled in the browser. Hermes may still be running on the server until it finishes or times out.",
@@ -378,7 +390,7 @@ export function ChatPage() {
         />
 
         {sessionTimeoutHint && (
-          <WarningCard severity="warning" title="Session run timed out" description={sessionTimeoutHint} />
+          <WarningCard severity="warning" title="Hermes timed out" description={sessionTimeoutHint} />
         )}
         {parseWarning && (
           <WarningCard severity="warning" title="Session id" description={parseWarning} />
@@ -496,7 +508,7 @@ export function ChatPage() {
                   <p className="text-sm font-medium tracking-tight text-foreground">{headline}</p>
                   <p className="font-mono text-xs text-muted-foreground tabular-nums">
                     Elapsed {elapsedSec}s
-                    {elapsedSec >= 120 ? " — past server limit, finishing up…" : ""}
+                    {elapsedSec >= chatTimeoutSec ? " — past configured server limit, finishing up…" : ""}
                   </p>
                 </div>
               </div>
