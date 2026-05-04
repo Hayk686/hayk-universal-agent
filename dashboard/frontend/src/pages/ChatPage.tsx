@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { Bot, Loader2, MessageSquare, Send, Trash2, XCircle } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Bot, Loader2, MessageSquare, Send, Trash2, XCircle, Zap } from "lucide-react";
 import { PageShell } from "@/shell/PageShell";
 import { SectionHeader } from "@/components/section-header";
 import { WarningCard } from "@/components/warning-card";
@@ -12,13 +12,15 @@ import type { ChatSendResponse, ChatSessionSendResponse } from "@/types/api-cont
 
 const LS_SESSION = "hayk-agent-chat-session-id";
 const LS_HISTORY = "hayk-agent-chat-history-v1";
+const LS_MODE = "hayk-agent-chat-mode";
 const CHAT_CLIENT_ABORT_AFTER_MS = 125_000;
 
-const PROGRESS_LINES = [
+type ChatMode = "fast" | "session";
+
+const PROGRESS_LINES_BASE = [
   "Starting Hermes…",
   "Sending message to model…",
   "Waiting for response…",
-  "Persistent sessions can still take 20–30 seconds per turn.",
 ] as const;
 
 type TurnMode = "hermes-session" | "oneshot";
@@ -67,11 +69,21 @@ function readStoredHistory(): HistoryMsg[] {
   }
 }
 
-function progressHeadline(elapsedSec: number): string {
-  if (elapsedSec < 6) return PROGRESS_LINES[0];
-  if (elapsedSec < 14) return PROGRESS_LINES[1];
-  if (elapsedSec < 22) return PROGRESS_LINES[2];
-  return PROGRESS_LINES[3];
+function readChatMode(): ChatMode {
+  try {
+    const v = localStorage.getItem(LS_MODE);
+    if (v === "session") return "session";
+    return "fast";
+  } catch {
+    return "fast";
+  }
+}
+
+function progressHeadline(elapsedSec: number, lines: readonly string[]): string {
+  if (elapsedSec < 6) return lines[0];
+  if (elapsedSec < 14) return lines[1];
+  if (elapsedSec < 22) return lines[2];
+  return lines[3];
 }
 
 function progressStepIndex(elapsedSec: number): number {
@@ -83,18 +95,27 @@ function progressStepIndex(elapsedSec: number): number {
 
 export function ChatPage() {
   const [input, setInput] = useState("");
+  const [chatMode, setChatMode] = useState<ChatMode>(readChatMode);
   const [sessionId, setSessionId] = useState<string | null>(readStoredSession);
   const [history, setHistory] = useState<HistoryMsg[]>(readStoredHistory);
   const [httpError, setHttpError] = useState<string | null>(null);
   const [cancelNote, setCancelNote] = useState<string | null>(null);
-  const [fallbackNote, setFallbackNote] = useState<string | null>(null);
   const [parseWarning, setParseWarning] = useState<string | null>(null);
+  const [sessionTimeoutHint, setSessionTimeoutHint] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [elapsedSec, setElapsedSec] = useState(0);
   const abortRef = useRef<AbortController | null>(null);
   const abortReasonRef = useRef<"user" | "timeout" | null>(null);
   const loadStartedAt = useRef<number>(0);
   const historyEndRef = useRef<HTMLDivElement | null>(null);
+
+  const progressLines = useMemo(() => {
+    const tail =
+      chatMode === "fast"
+        ? "Fast mode still runs a full Hermes turn — allow ~20–30 seconds."
+        : "Session mode may be slower on some devices; switch to Fast mode if you see timeouts.";
+    return [...PROGRESS_LINES_BASE, tail];
+  }, [chatMode]);
 
   useEffect(() => {
     try {
@@ -104,6 +125,14 @@ export function ChatPage() {
       /* ignore */
     }
   }, [sessionId]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(LS_MODE, chatMode);
+    } catch {
+      /* ignore */
+    }
+  }, [chatMode]);
 
   useEffect(() => {
     try {
@@ -163,28 +192,27 @@ export function ChatPage() {
       ac.abort();
     }, CHAT_CLIENT_ABORT_AFTER_MS);
 
+    const modeNow = chatMode;
     setHttpError(null);
     setCancelNote(null);
-    setFallbackNote(null);
     setParseWarning(null);
+    setSessionTimeoutHint(null);
     setLoading(true);
     const sid = sessionId;
     try {
-      try {
+      if (modeNow === "fast") {
+        const data = await api.sendChatMessage(message, { signal: ac.signal });
+        appendExchange(message, data);
+        setInput("");
+      } else {
         const data = await api.sendSessionChatMessage(message, sid, { signal: ac.signal });
         applySessionResult(data);
         appendExchange(message, data);
-        setInput("");
-      } catch (firstErr) {
-        const aborted =
-          (firstErr instanceof DOMException && firstErr.name === "AbortError") ||
-          (firstErr instanceof Error && firstErr.name === "AbortError");
-        if (aborted) throw firstErr;
-        const data = await api.sendChatMessage(message, { signal: ac.signal });
-        setFallbackNote(
-          "Session chat failed — used one-shot fallback (new Hermes process). Your transcript is still shown below.",
-        );
-        appendExchange(message, data);
+        if (data.exitCode === 124) {
+          setSessionTimeoutHint(
+            "Hermes timed out on this session-style run (120s). On Raspberry Pi, Session mode is often slower — switch to Fast mode (one-shot) above for quicker, more reliable replies.",
+          );
+        }
         setInput("");
       }
     } catch (e) {
@@ -195,9 +223,13 @@ export function ChatPage() {
         const reason = abortReasonRef.current;
         abortReasonRef.current = null;
         if (reason === "timeout") {
-          setHttpError(
-            "This request ran longer than 120 seconds. The server stops Hermes after that limit — try a shorter message or try again.",
-          );
+          const base =
+            "This request ran longer than 120 seconds; the client stopped waiting or the server hit its Hermes timeout.";
+          const hint =
+            modeNow === "session"
+              ? ` ${base} Session mode is often slower on a Pi — try Fast mode (one-shot) using the toggle at the top of this page.`
+              : ` ${base} Try a shorter message or try again.`;
+          setHttpError(hint.trim());
         } else {
           setCancelNote(
             "Request cancelled in the browser. Hermes may still be running on the server until it finishes or times out.",
@@ -223,7 +255,7 @@ export function ChatPage() {
     setSessionId(null);
     setHistory([]);
     setParseWarning(null);
-    setFallbackNote(null);
+    setSessionTimeoutHint(null);
     try {
       localStorage.removeItem(LS_SESSION);
       localStorage.removeItem(LS_HISTORY);
@@ -234,28 +266,88 @@ export function ChatPage() {
 
   function clearLocalHistory() {
     setHistory([]);
-    setFallbackNote(null);
+    setSessionTimeoutHint(null);
   }
 
-  const headline = loading ? progressHeadline(elapsedSec) : "";
+  const headline = loading ? progressHeadline(elapsedSec, progressLines) : "";
   const activeStep = loading ? progressStepIndex(elapsedSec) : -1;
 
   return (
     <PageShell
       title="Agent Chat"
-      description="POST /api/chat/session-send — Hermes chat -q -Q with optional --resume (browser history is local only for now)."
+      description="Fast mode: POST /api/chat/send (hermes -z). Session mode: POST /api/chat/session-send (hermes chat -q -Q). Local transcript is browser-only."
     >
       <div className="max-w-5xl space-y-6">
         <SectionHeader
           icon={MessageSquare}
           title="Message Hermes"
-          description="Conversation uses a persistent Hermes session id when available; history below is stored in this browser only."
+          description={
+            chatMode === "fast"
+              ? "Each send runs a fresh one-shot Hermes process. Your transcript below is for this browser only."
+              : "Each send continues the Hermes CLI session when possible. Transcript below is still local-only."
+          }
           action={
-            <Badge variant="secondary" className="shrink-0">
-              Persistent Hermes Session
-            </Badge>
+            chatMode === "fast" ? (
+              <Badge variant="secondary" className="shrink-0">
+                Fast one-shot
+              </Badge>
+            ) : (
+              <Badge variant="secondary" className="shrink-0">
+                Persistent Hermes Session
+              </Badge>
+            )
           }
         />
+
+        <Card className="border-border/80">
+          <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-foreground">Mode</p>
+              <p className="text-[11px] text-muted-foreground">
+                Choose one-shot speed vs Hermes session resume.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={chatMode === "fast" ? "default" : "outline"}
+                className="gap-1.5"
+                onClick={() => setChatMode("fast")}
+                disabled={loading}
+                aria-pressed={chatMode === "fast"}
+              >
+                <Zap className="h-3.5 w-3.5" />
+                Fast mode
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={chatMode === "session" ? "default" : "outline"}
+                onClick={() => setChatMode("session")}
+                disabled={loading}
+                aria-pressed={chatMode === "session"}
+              >
+                Session mode
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {chatMode === "fast" && (
+          <WarningCard
+            severity="info"
+            title="Fast mode"
+            description="Does not preserve Hermes session context between messages. Each reply is independent."
+          />
+        )}
+        {chatMode === "session" && (
+          <WarningCard
+            severity="warning"
+            title="Session mode"
+            description="May be slower or timeout depending on provider and device (common on Raspberry Pi). Use Fast mode if this fails."
+          />
+        )}
 
         <div className="flex flex-wrap items-center gap-2">
           <Button type="button" size="sm" variant="outline" onClick={newSession}>
@@ -272,7 +364,10 @@ export function ChatPage() {
             Clear Local History
           </Button>
           <span className="font-mono text-[10px] text-muted-foreground sm:ml-auto">
-            Hermes session: {sessionId ?? "— (next send starts new)"}
+            Hermes session id:{" "}
+            {chatMode === "session"
+              ? sessionId ?? "— (next Session send starts new)"
+              : "not used in Fast mode"}
           </span>
         </div>
 
@@ -282,8 +377,8 @@ export function ChatPage() {
           description="This page remembers messages in your browser. Server-side chat history and SQLite are not enabled yet."
         />
 
-        {fallbackNote && (
-          <WarningCard severity="warning" title="Fallback mode" description={fallbackNote} />
+        {sessionTimeoutHint && (
+          <WarningCard severity="warning" title="Session run timed out" description={sessionTimeoutHint} />
         )}
         {parseWarning && (
           <WarningCard severity="warning" title="Session id" description={parseWarning} />
@@ -406,9 +501,9 @@ export function ChatPage() {
                 </div>
               </div>
               <ul className="space-y-2 border-t border-border/60 pt-4">
-                {PROGRESS_LINES.map((line, i) => (
+                {progressLines.map((line, i) => (
                   <li
-                    key={line}
+                    key={`${line}-${i}`}
                     className={cn(
                       "flex gap-2 text-xs leading-snug transition-colors duration-300",
                       i === activeStep
