@@ -145,7 +145,7 @@ export function ChatPage() {
           </CardHeader>
           <CardContent className="space-y-3 pt-4">
             <textarea
-              className="min-h-[10rem] w-full resize-y rounded-lg border border-border bg-background/50 px-3 py-2.5 font-sans text-sm leading-relaxed shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="min-h-[10rem] w-full resize-y rounded-lg border border-border bg-card text-foreground placeholder:text-muted-foreground px-3 py-2.5 font-sans text-sm leading-relaxed shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Ask Hermes something…"
