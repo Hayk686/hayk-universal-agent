@@ -1,0 +1,24 @@
+node_modules/
+dist/
+.venv/
+__pycache__/
+*.pyc
+.env
+.env.*
+*.bak
+*.bak-*
+backups/
+
+# local dashboard backups
+*.bak*
+*.good-*
+*.tsbuildinfo
+
+# frontend build/generated
+dashboard/frontend/dist/
+dashboard/frontend/node_modules/
+dashboard/frontend/vite.config.js
+dashboard/frontend/vite.config.d.ts
+
+# local workspace/runtime
+agent-workspace/
