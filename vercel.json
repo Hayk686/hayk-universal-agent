@@ -5,7 +5,11 @@
   "outputDirectory": "dashboard/frontend/dist",
   "rewrites": [
     {
-      "source": "/(.*)",
+      "source": "/health",
+      "destination": "/api/health"
+    },
+    {
+      "source": "/((?!api/).*)",
       "destination": "/index.html"
     }
   ]
