@@ -7,9 +7,17 @@ module.exports = async function handler(req, res) {
     return res.status(204).end();
   }
   if (req.method === "GET") {
-    cors(res);
-    res.setHeader("Content-Type", "text/markdown; charset=utf-8");
-    return res.status(200).send(readText("agent-workspace", "AGENTS.md"));
+    try {
+      cors(res);
+      res.setHeader("Content-Type", "text/markdown; charset=utf-8");
+      return res.status(200).send(readText("agent-workspace", "AGENTS.md"));
+    } catch (error) {
+      console.error("agents-md failed", { message: error.message || String(error) });
+      return json(res, 500, {
+        detail: "AGENTS.md is unavailable in this Vercel function bundle",
+        error: error.message || String(error),
+      });
+    }
   }
   return json(res, 405, {
     detail: "AGENTS.md is read-only in Vercel cloud mode. Edit it in GitHub and redeploy.",

@@ -8,13 +8,21 @@ module.exports = async function handler(req, res) {
     return res.status(204).end();
   }
   if (req.method === "GET") {
-    const dir = repoPath("agent-workspace", "playbooks");
-    const entries = fs
-      .readdirSync(dir)
-      .filter((name) => name.endsWith(".md"))
-      .sort((a, b) => a.localeCompare(b))
-      .map((name) => fileEntry(repoPath("agent-workspace", "playbooks", name)));
-    return json(res, 200, entries);
+    try {
+      const dir = repoPath("agent-workspace", "playbooks");
+      const entries = fs
+        .readdirSync(dir)
+        .filter((name) => name.endsWith(".md"))
+        .sort((a, b) => a.localeCompare(b))
+        .map((name) => fileEntry(repoPath("agent-workspace", "playbooks", name)));
+      return json(res, 200, entries);
+    } catch (error) {
+      console.error("playbooks list failed", { message: error.message || String(error) });
+      return json(res, 500, {
+        detail: "Playbooks are unavailable in this Vercel function bundle",
+        error: error.message || String(error),
+      });
+    }
   }
   return json(res, 405, {
     detail: "Playbooks are read-only in Vercel cloud mode. Edit them in GitHub and redeploy.",

@@ -3,6 +3,11 @@
   "installCommand": "cd dashboard/frontend && npm ci",
   "buildCommand": "cd dashboard/frontend && npm run build",
   "outputDirectory": "dashboard/frontend/dist",
+  "functions": {
+    "api/**/*.js": {
+      "includeFiles": "agent-workspace/**"
+    }
+  },
   "rewrites": [
     {
       "source": "/health",
