@@ -29,3 +29,18 @@ VITE_API_BASE_URL=https://your-backend-host.example
 ```
 
 `VITE_API_BASE_URL` must be the backend root, without `/api` at the end.
+
+For the Vercel cloud API mode, leave `VITE_API_BASE_URL` unset and add:
+
+```text
+OPENROUTER_API_KEY=sk-or-...
+GITHUB_TOKEN=github_pat_...
+GITHUB_REPO=Hayk686/hayk-universal-agent
+GITHUB_BRANCH=main
+AGENT_WORKHORSE_MODEL=minimax/minimax-m2.5:free
+AGENT_WEB_MODEL=minimax/minimax-m2.5:free
+AGENT_ALLOW_PAID_MODELS=false
+```
+
+The GitHub token needs Contents read/write access for this repository so the
+browser editor can save `AGENTS.md` and playbooks through Vercel functions.
