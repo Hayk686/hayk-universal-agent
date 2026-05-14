@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Hayk Browser Helper",
+  "version": "0.1.0",
+  "description": "Send compact page context to the local Hayk agent.",
+  "action": {
+    "default_title": "Hayk Helper",
+    "default_popup": "popup.html"
+  },
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": [
+    "http://127.0.0.1:8000/*",
+    "http://localhost:8000/*"
+  ]
+}

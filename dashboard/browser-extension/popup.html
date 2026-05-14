@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hayk Helper</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="panel">
+      <header class="header">
+        <div>
+          <h1>Hayk Helper</h1>
+          <p id="status">Готов читать текущую вкладку</p>
+        </div>
+      </header>
+
+      <label class="field">
+        <span>API</span>
+        <input id="apiBase" type="url" spellcheck="false" />
+      </label>
+
+      <label class="field">
+        <span>Модель</span>
+        <select id="mode">
+          <option value="workhorse">workhorse: MiniMax free</option>
+          <option value="fast">fast: Nemotron free</option>
+          <option value="smart">smart: GLM free</option>
+          <option value="auto">auto: OpenRouter free</option>
+          <option value="backup">backup: GPT OSS free</option>
+        </select>
+      </label>
+
+      <div class="actions">
+        <button id="analyze" type="button">Analyze page</button>
+        <button id="copy" type="button" disabled>Copy</button>
+      </div>
+
+      <section class="result" aria-live="polite">
+        <pre id="output">Нажми Analyze page на странице с заданием.</pre>
+      </section>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -9,7 +10,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.config import AGENT_NAME, get_workspace_root
 from app.safety import is_whitelisted_command, list_whitelisted_commands, safe_join
@@ -344,9 +345,193 @@ class CommandBody(BaseModel):
     command: str
 
 
+_BROWSER_MODELS: dict[str, tuple[str, str]] = {
+    "auto": ("AGENT_PRIMARY_MODEL", "openrouter/free"),
+    "fast": ("AGENT_FAST_MODEL", "nvidia/nemotron-3-nano-30b-a3b:free"),
+    "workhorse": ("AGENT_WORKHORSE_MODEL", "minimax/minimax-m2.5:free"),
+    "smart": ("AGENT_SMART_MODEL", "z-ai/glm-4.5-air:free"),
+    "backup": ("AGENT_BACKUP_MODEL", "openai/gpt-oss-20b:free"),
+}
+
+
+def _hermes_bin() -> str:
+    return os.environ.get("HERMES_BIN", "hermes")
+
+
+def _chat_timeout_seconds() -> int:
+    raw = os.environ.get("CHAT_TIMEOUT_SECONDS", "300").strip()
+    try:
+        value = int(raw, 10)
+    except ValueError:
+        return 300
+    return value if 30 <= value <= 600 else 300
+
+
+def _paid_models_allowed() -> bool:
+    raw = os.environ.get("AGENT_ALLOW_PAID_MODELS", "false").strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
+
+def _browser_model_for(mode: str) -> str:
+    env_name, default = _BROWSER_MODELS.get(mode, _BROWSER_MODELS["workhorse"])
+    model = os.environ.get(env_name, default).strip() or default
+    if not _paid_models_allowed() and model != "openrouter/free" and not model.endswith(":free"):
+        raise HTTPException(
+            status_code=500,
+            detail=f"{env_name} must be a free model while AGENT_ALLOW_PAID_MODELS=false",
+        )
+    return model
+
+
+def _browser_text_limit() -> int:
+    raw = os.environ.get("BROWSER_AGENT_MAX_CHARS", "6000").strip()
+    try:
+        value = int(raw, 10)
+    except ValueError:
+        return 6000
+    return min(max(value, 1000), 12000)
+
+
+def _compact_browser_text(text: str, max_chars: int) -> str:
+    lines: list[str] = []
+    for raw in text.replace("\r", "\n").splitlines():
+        line = re.sub(r"[ \t\f\v]+", " ", raw).strip()
+        if line:
+            lines.append(line)
+    compact = "\n".join(lines)
+    if len(compact) <= max_chars:
+        return compact
+    return compact[:max_chars].rstrip() + "\n[truncated]"
+
+
+class BrowserAnalyzeBody(BaseModel):
+    """Compact visible page context from the browser extension."""
+
+    url: str = Field(default="", description="Current tab URL")
+    title: str = Field(default="", description="Current tab title")
+    selection: str = Field(default="", description="Selected text, if any")
+    visibleText: str = Field(..., description="Visible page text extracted by the extension")
+    mode: str = Field(default="workhorse", description="auto, fast, workhorse, smart, or backup")
+
+    @field_validator("url", "title", "selection", mode="before")
+    @classmethod
+    def _coerce_optional_text(cls, v: Any) -> str:
+        if v is None:
+            return ""
+        if not isinstance(v, str):
+            raise TypeError("field must be a string")
+        return v.strip()
+
+    @field_validator("visibleText")
+    @classmethod
+    def _validate_visible_text(cls, v: str) -> str:
+        if not isinstance(v, str):
+            raise TypeError("visibleText must be a string")
+        s = v.strip()
+        if not s:
+            raise ValueError("visibleText must not be empty")
+        if len(s) > 20000:
+            raise ValueError("visibleText exceeds maximum length of 20000 characters")
+        return s
+
+    @field_validator("mode")
+    @classmethod
+    def _validate_mode(cls, v: str) -> str:
+        if not isinstance(v, str):
+            raise TypeError("mode must be a string")
+        s = v.strip().lower() or "workhorse"
+        if s not in _BROWSER_MODELS:
+            raise ValueError("mode must be auto, fast, workhorse, smart, or backup")
+        return s
+
+
+def _browser_analysis_prompt(body: BrowserAnalyzeBody) -> str:
+    page_text = _compact_browser_text(body.visibleText, _browser_text_limit())
+    selected = _compact_browser_text(body.selection, 1200) if body.selection else "(none)"
+    title = body.title[:300] if body.title else "(none)"
+    url = body.url[:500] if body.url else "(none)"
+    return (
+        "You are a concise browser work assistant.\n"
+        "Analyze the current page context and suggest the next useful answer or action.\n"
+        "Use only the provided context. If the context is insufficient, say exactly what is missing.\n"
+        "Answer in Russian. Do not include a safety lecture.\n"
+        "Format:\n"
+        "Коротко: <one sentence>\n"
+        "Ответ/действие: <what to answer or do>\n"
+        "Почему: <brief reason>\n"
+        "Уверенность: high|medium|low\n\n"
+        f"URL: {url}\n"
+        f"Title: {title}\n"
+        f"Selected text: {selected}\n\n"
+        "Visible page text:\n"
+        f"{page_text}\n"
+    )
+
+
 @router.get("/commands/whitelist")
 def commands_whitelist() -> dict[str, list[str]]:
     return {"commands": list_whitelisted_commands()}
+
+
+@router.post("/browser/analyze")
+async def browser_analyze(
+    body: BrowserAnalyzeBody,
+    ws: Path = Depends(workspace_dep),
+) -> dict[str, Any]:
+    """Analyze compact browser page context with a free-model Hermes one-shot."""
+    timeout_sec = _chat_timeout_seconds()
+    model = _browser_model_for(body.mode)
+    prompt = _browser_analysis_prompt(body)
+    started = datetime.now(timezone.utc)
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            _hermes_bin(),
+            "-z",
+            prompt,
+            "--provider",
+            "openrouter",
+            "--model",
+            model,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            cwd=str(ws),
+            env={**os.environ, "LC_ALL": "C.UTF-8"},
+        )
+    except OSError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Hermes is not available on this machine ({_hermes_bin()}): {exc}",
+        ) from exc
+
+    try:
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout=float(timeout_sec))
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+        elapsed_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
+        return {
+            "response": f"Hermes browser helper timed out after {timeout_sec} seconds.\n",
+            "exitCode": 124,
+            "durationMs": elapsed_ms,
+            "mode": "browser-analyze",
+            "model": model,
+            "requestMode": body.mode,
+        }
+
+    text = out.decode("utf-8", errors="replace")
+    code = proc.returncode if proc.returncode is not None else -1
+    elapsed_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
+    if code != 0:
+        text = (f"Hermes exited with code {code}.\n\n{text}".strip() + "\n").strip()
+
+    return {
+        "response": text,
+        "exitCode": code,
+        "durationMs": elapsed_ms,
+        "mode": "browser-analyze",
+        "model": model,
+        "requestMode": body.mode,
+    }
 
 
 @router.post("/commands/run")
