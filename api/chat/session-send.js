@@ -25,6 +25,15 @@ module.exports = async function handler(req, res) {
       parseWarning: "Cloud session is stateless on Vercel; local browser history keeps the visible chat.",
     });
   } catch (error) {
-    return json(res, error.statusCode || 500, { detail: error.message || String(error) });
+    console.error("chat/session-send failed", {
+      message: error.message || String(error),
+      providerStatus: error.providerStatus,
+      model: error.model,
+    });
+    return json(res, error.statusCode || 500, {
+      detail: error.message || String(error),
+      providerStatus: error.providerStatus || null,
+      model: error.model || null,
+    });
   }
 };

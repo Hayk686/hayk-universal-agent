@@ -84,6 +84,8 @@ async function callOpenRouter(message, { web = false } = {}) {
     const detail = payload.error?.message || payload.detail || text || `OpenRouter HTTP ${response.status}`;
     const err = new Error(String(detail));
     err.statusCode = 502;
+    err.providerStatus = response.status;
+    err.model = model;
     throw err;
   }
   return {
@@ -95,6 +97,7 @@ async function callOpenRouter(message, { web = false } = {}) {
 module.exports = {
   callOpenRouter,
   cors,
+  DEFAULT_MODEL,
   json,
   readBody,
   validateMessage,

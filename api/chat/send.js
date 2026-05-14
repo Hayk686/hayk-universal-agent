@@ -19,6 +19,15 @@ module.exports = async function handler(req, res) {
       mode: "oneshot",
     });
   } catch (error) {
-    return json(res, error.statusCode || 500, { detail: error.message || String(error) });
+    console.error("chat/send failed", {
+      message: error.message || String(error),
+      providerStatus: error.providerStatus,
+      model: error.model,
+    });
+    return json(res, error.statusCode || 500, {
+      detail: error.message || String(error),
+      providerStatus: error.providerStatus || null,
+      model: error.model || null,
+    });
   }
 };
