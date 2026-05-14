@@ -24,4 +24,4 @@ Expected layout:
 
 ## Playbooks
 
-Use `playbooks/` for repeatable patterns: planning, safe shell usage, Python execution, file workflow, and self-diagnostics.
+Use `playbooks/` for repeatable patterns: planning, safe shell usage, Python execution, file workflow, and self-diagnostics
