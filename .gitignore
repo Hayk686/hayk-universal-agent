@@ -22,7 +22,10 @@ dashboard/frontend/dist/
 input/
 output/
 reports/
+backups/
 *.bak.*
+*.bak-*
+*.good-*
 *.tmp
 
 # Business / binary uploads (keep repo source-only)
@@ -55,3 +58,5 @@ _lovable-hub/
 
 # TypeScript build cache
 *.tsbuildinfo
+dashboard/frontend/vite.config.js
+dashboard/frontend/vite.config.d.ts
