@@ -23,8 +23,8 @@ import * as client from "./client";
 import * as mocks from "./mocks";
 
 export async function parseJsonOrThrow<T>(res: Response): Promise<T> {
+  const text = await res.text();
   if (!res.ok) {
-    const text = await res.text();
     let detail: unknown;
     try {
       const parsed = JSON.parse(text) as { detail?: unknown };
@@ -37,7 +37,17 @@ export async function parseJsonOrThrow<T>(res: Response): Promise<T> {
     }
     throw new Error(text);
   }
-  return res.json() as Promise<T>;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    const preview = text.trim().slice(0, 120);
+    if (preview.startsWith("<")) {
+      throw new Error(
+        "API returned HTML instead of JSON. Set VITE_API_BASE_URL to the FastAPI backend, or set VITE_USE_MOCKS=true for a frontend-only Vercel preview.",
+      );
+    }
+    throw new Error(`API returned invalid JSON: ${preview || "(empty response)"}`);
+  }
 }
 
 const uploadUrl = () => `${client.apiBase()}/api/files/upload`;
@@ -206,7 +216,13 @@ export const api = {
 
   getChatSessions: () =>
     gate(
-      () => client.getJson<ChatSessionListResponse>("/api/chat/sessions"),
+      async () => {
+        try {
+          return await client.getJson<ChatSessionListResponse>("/api/chat/sessions");
+        } catch {
+          return { sessions: [] };
+        }
+      },
       async () => ({ sessions: [] }),
     ),
 

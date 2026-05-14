@@ -35,8 +35,19 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
 
 export async function getJson<T>(path: string): Promise<T> {
   const res = await apiFetch(path);
-  if (!res.ok) throw new Error(await res.text());
-  return res.json() as Promise<T>;
+  const text = await res.text();
+  if (!res.ok) throw new Error(text);
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    const preview = text.trim().slice(0, 120);
+    if (preview.startsWith("<")) {
+      throw new Error(
+        "API returned HTML instead of JSON. Set VITE_API_BASE_URL to the FastAPI backend, or set VITE_USE_MOCKS=true for a frontend-only Vercel preview.",
+      );
+    }
+    throw new Error(`API returned invalid JSON: ${preview || "(empty response)"}`);
+  }
 }
 
 export async function getText(path: string): Promise<string> {
