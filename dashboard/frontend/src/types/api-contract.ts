@@ -38,6 +38,8 @@ export type StatusResponse = {
     pythonPath: string;
     existsAndExecutable: boolean;
   };
+  /** Max seconds the server waits on each Agent Chat Hermes subprocess. */
+  chatTimeoutSeconds: number;
 };
 
 export type SaveMarkdownResponse = {
@@ -64,6 +66,54 @@ export type NewPlaybookRequest = {
 
 export type SaveBodyRequest = {
   content: string;
+};
+
+export type ChatSendResponse = {
+  response: string;
+  exitCode: number;
+  durationMs: number;
+  mode: "oneshot";
+};
+
+export type ChatWebSendResponse = {
+  response: string;
+  exitCode: number;
+  durationMs: number;
+  mode: "web-oneshot";
+};
+
+export type ChatSessionSendResponse = {
+  response: string;
+  sessionId: string | null;
+  exitCode: number;
+  durationMs: number;
+  mode: "hermes-session";
+  parseWarning?: string | null;
+};
+
+export type ChatSessionTranscriptMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  timestamp?: number | null;
+};
+
+export type ChatSessionTranscriptResponse = {
+  sessionId: string;
+  title: string | null;
+  messageCount: number;
+  messages: ChatSessionTranscriptMessage[];
+};
+
+export type ChatSessionListItem = {
+  sessionId: string;
+  title: string;
+  preview: string;
+  lastActive: string;
+};
+
+export type ChatSessionListResponse = {
+  sessions: ChatSessionListItem[];
 };
 
 /** Exact strings accepted by POST /api/commands/run (must match backend whitelist). */

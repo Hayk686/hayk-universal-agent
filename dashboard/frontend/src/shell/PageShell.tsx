@@ -15,7 +15,7 @@ type PageShellProps = {
  */
 export function PageShell({ title, description, actions, children }: PageShellProps) {
   return (
-    <div className="mx-auto max-w-7xl space-y-6" data-page-shell>
+    <div className="mx-auto w-full max-w-[1500px] space-y-4 sm:space-y-5" data-page-shell>
       <PageHeader
         title={title}
         description={description}

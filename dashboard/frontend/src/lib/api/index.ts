@@ -3,6 +3,11 @@
  */
 
 import type {
+  ChatSendResponse,
+  ChatSessionSendResponse,
+  ChatSessionTranscriptResponse,
+  ChatSessionListResponse,
+  ChatWebSendResponse,
   CommandRunResponse,
   CommandsWhitelistResponse,
   FileEntry,
@@ -18,7 +23,20 @@ import * as client from "./client";
 import * as mocks from "./mocks";
 
 export async function parseJsonOrThrow<T>(res: Response): Promise<T> {
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) {
+    const text = await res.text();
+    let detail: unknown;
+    try {
+      const parsed = JSON.parse(text) as { detail?: unknown };
+      detail = parsed.detail;
+    } catch {
+      /* fall through to raw text */
+    }
+    if (typeof detail === "string") {
+      throw new Error(detail);
+    }
+    throw new Error(text);
+  }
   return res.json() as Promise<T>;
 }
 
@@ -154,6 +172,74 @@ export const api = {
     const res = await client.postJson("/api/commands/run", { command });
     return parseJsonOrThrow<CommandRunResponse>(res);
   },
+
+  sendSessionChatMessage: (
+    message: string,
+    sessionId: string | null,
+    init?: { signal?: AbortSignal },
+  ) =>
+    gate(
+      async () => {
+        const res = await client.postJson(
+          "/api/chat/session-send",
+          { message, sessionId: sessionId ?? null },
+          init,
+        );
+        return parseJsonOrThrow<ChatSessionSendResponse>(res);
+      },
+      () => mocks.mockChatSessionSend(message, sessionId),
+    ),
+
+  getChatSessionTranscript: (sessionId: string) =>
+    gate(
+      () =>
+        client.getJson<ChatSessionTranscriptResponse>(
+          `/api/chat/sessions/${encodeURIComponent(sessionId)}/transcript`,
+        ),
+      async () => ({
+        sessionId,
+        title: null,
+        messageCount: 0,
+        messages: [],
+      }),
+    ),
+
+  getChatSessions: () =>
+    gate(
+      () => client.getJson<ChatSessionListResponse>("/api/chat/sessions"),
+      async () => ({ sessions: [] }),
+    ),
+
+  deleteChatSession: (sessionId: string) =>
+    gate(
+      () => client.del(`/api/chat/sessions/${encodeURIComponent(sessionId)}`),
+      async () =>
+        new Response(JSON.stringify({ ok: "true", sessionId }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    ),
+
+  sendChatMessage: (message: string, init?: { signal?: AbortSignal }) =>
+    gate(
+      async () => {
+        const res = await client.postJson("/api/chat/send", { message }, init);
+        return parseJsonOrThrow<ChatSendResponse>(res);
+      },
+      () => mocks.mockChatSend(message),
+    ),
+
+  sendWebChatMessage: (message: string, init?: { signal?: AbortSignal }) =>
+    gate(
+      async () => {
+        const res = await client.postJson("/api/chat/web-send", { message }, init);
+        return parseJsonOrThrow<ChatWebSendResponse>(res);
+      },
+      async () => {
+        const data = await mocks.mockChatSend(message);
+        return { ...data, mode: "web-oneshot" as const };
+      },
+    ),
 };
 
 function mockFileEntry(name: string): FileEntry {

@@ -1,3 +1,4 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap");
 @import "./styles/tokens.css";
 
 @tailwind base;
@@ -16,9 +17,167 @@
 body {
   margin: 0;
   min-height: 100vh;
+  overscroll-behavior-x: none;
 }
 
 pre.log-box {
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+
+/* hayk mobile overflow guard */
+html,
+body,
+#root {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+[data-shell-main],
+[data-page-shell],
+[data-page-content] {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+/* Hayk app-like scrollbars */
+.hayk-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--muted-foreground) 35%, transparent) transparent;
+}
+
+.hayk-scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+
+.hayk-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.hayk-scrollbar::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--muted-foreground) 28%, transparent);
+  border-radius: 999px;
+}
+
+.hayk-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in oklab, var(--muted-foreground) 42%, transparent);
+}
+
+.chat-thread {
+  scrollbar-width: none;
+}
+
+.chat-thread::-webkit-scrollbar {
+  display: none;
+}
+
+
+/* hayk mobile chat composer lock */
+@media (max-width: 767px) {
+  html,
+  body,
+  #root {
+    overflow-x: hidden;
+  }
+
+  [data-shell-main] {
+    overflow-x: hidden;
+  }
+
+  [data-page-content] {
+    overflow-x: hidden;
+  }
+
+  textarea {
+    max-width: 100%;
+  }
+}
+
+/* Chat mobile layout: keep composer stable above bottom nav, prevent sideways drag */
+@media (max-width: 767px) {
+  .chat-canvas {
+    height: 100%;
+    min-height: 0;
+  }
+
+  .chat-thread {
+    min-height: 0;
+    padding-bottom: 1rem !important;
+  }
+
+  .chat-empty {
+    justify-content: flex-start;
+    padding-top: clamp(3rem, 10dvh, 6rem);
+    padding-bottom: 1rem;
+  }
+
+  .chat-empty h2 {
+    font-size: 1.75rem;
+    line-height: 2.1rem;
+  }
+
+  .chat-mobile-composer {
+    flex-shrink: 0;
+    z-index: 25;
+    width: auto;
+    padding: 0.75rem 1rem 0.75rem !important;
+    max-width: none;
+    overflow: hidden;
+    box-sizing: border-box;
+    touch-action: pan-y;
+  }
+
+  .chat-mobile-composer > div {
+    width: 100%;
+    max-width: 100%;
+    border-radius: 1.25rem;
+    overflow: hidden;
+    box-sizing: border-box;
+  }
+
+  .chat-mobile-composer textarea {
+    min-height: 3rem;
+    max-height: 5rem;
+    min-width: 0;
+  }
+
+  .chat-mobile-composer button,
+  .chat-mobile-composer span {
+    min-width: 0;
+  }
+
+  .chat-mobile-composer .chat-mobile-action-row {
+    grid-template-columns: minmax(0, 1fr) 2.75rem;
+    min-width: 0;
+    gap: 0.5rem;
+  }
+
+  .chat-mobile-composer .chat-mobile-mode-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    min-width: 0;
+    gap: 0.3rem;
+  }
+
+  .chat-mobile-composer .chat-mobile-mode-row button {
+    height: 2.25rem;
+    min-width: 0;
+    padding-left: 0.375rem;
+    padding-right: 0.375rem;
+    font-size: 0.75rem;
+  }
+
+  .chat-mobile-composer .chat-mobile-send-row {
+    min-width: 0;
+    width: 2.75rem;
+  }
+
+  .chat-mobile-composer .chat-mobile-send-row button {
+    width: 2.75rem;
+    min-width: 2.75rem;
+    padding-left: 0;
+    padding-right: 0;
+  }
 }

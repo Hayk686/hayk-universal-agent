@@ -10,11 +10,7 @@ export type NavRoute = {
 };
 
 export const NAV_ROUTES: NavRoute[] = [
-  { id: "dashboard", path: "/", label: "Dashboard", end: true },
-  { id: "files", path: "/files", label: "Files", end: true },
-  { id: "agents", path: "/agents", label: "AGENTS.md", end: true },
-  { id: "playbooks", path: "/playbooks", label: "Playbooks", end: false },
-  { id: "hermes", path: "/hermes", label: "Hermes", end: true },
-  { id: "logs", path: "/logs", label: "Logs", end: true },
+  { id: "chat", path: "/chat", label: "Chat", end: true },
+  { id: "dashboard", path: "/", label: "Status", end: true },
   { id: "settings", path: "/settings", label: "Settings", end: true },
 ];

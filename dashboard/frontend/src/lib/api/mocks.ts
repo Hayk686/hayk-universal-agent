@@ -3,6 +3,8 @@
  */
 
 import type {
+  ChatSendResponse,
+  ChatSessionSendResponse,
   CommandRunResponse,
   CommandsWhitelistResponse,
   FileEntry,
@@ -42,6 +44,7 @@ export function mockStatus(): Promise<StatusResponse> {
       pythonPath: ".venv/bin/python (mock)",
       existsAndExecutable: true,
     },
+    chatTimeoutSeconds: 300,
   });
 }
 
@@ -91,6 +94,36 @@ export function mockRunCommand(command: string): Promise<CommandRunResponse> {
   return Promise.resolve({
     exitCode: 0,
     output: `[mock] Would run:\n${command}\n`,
+  });
+}
+
+let _mockSessionSeq = 0;
+
+export function mockChatSessionSend(
+  message: string,
+  sessionId: string | null,
+): Promise<ChatSessionSendResponse> {
+  const sid = sessionId ?? `mock_sess_${++_mockSessionSeq}`;
+  const preview =
+    message.length > 80 ? `${message.slice(0, 80)}…` : message;
+  return Promise.resolve({
+    response: `[mock persistent] ${preview}`,
+    sessionId: sid,
+    exitCode: 0,
+    durationMs: 15,
+    mode: "hermes-session",
+    parseWarning: null,
+  });
+}
+
+export function mockChatSend(message: string): Promise<ChatSendResponse> {
+  const preview =
+    message.length > 120 ? `${message.slice(0, 120)}…` : message;
+  return Promise.resolve({
+    response: `[mock] Echo for: ${preview}\n`,
+    exitCode: 0,
+    durationMs: 12,
+    mode: "oneshot",
   });
 }
 

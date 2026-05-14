@@ -43,12 +43,12 @@ export function HealthCheckCard({
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-2">
-          <span className="truncate text-sm font-medium">{label}</span>
+          <span className="break-words text-sm font-medium">{label}</span>
           <StatusDot tone={tone} pulse={state === "ok"} />
         </div>
         <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted-foreground">
           <span className="uppercase tracking-wider">{STATE_LABEL[state]}</span>
-          {detail && <span className="truncate font-mono">· {detail}</span>}
+          {detail && <span className="break-words font-mono">· {detail}</span>}
         </div>
       </div>
     </div>

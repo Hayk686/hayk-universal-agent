@@ -1,157 +1,147 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Activity,
-  AlertTriangle,
   BookOpen,
-  Bot,
-  Cpu,
-  FileEdit,
+  Check,
+  ChevronRight,
+  FileText,
   FolderOpen,
-  HardDrive,
-  History,
-  KeyRound,
-  Layers,
-  Lock,
+  HeartPulse,
   ScrollText,
-  Server,
-  Settings,
   ShieldCheck,
-  Terminal as TerminalIcon,
-  Upload,
-  Zap,
+  Stethoscope,
   type LucideIcon,
 } from "lucide-react";
 
-import { ActivityTimeline } from "@/components/activity-timeline";
-import { EmptyState } from "@/components/empty-state";
-import { FileTypeIcon } from "@/components/file-type-icon";
-import { HealthCheckCard, type HealthState } from "@/components/health-check-card";
-import { QuickActionButton } from "@/components/quick-action-button";
-import { SafetyBadge } from "@/components/safety-badge";
-import { SectionHeader } from "@/components/section-header";
-import { SourceModeBadge } from "@/components/source-mode-badge";
-import { StatusBadge, type StatusTone } from "@/components/status-badge";
-import { WarningCard, type WarningSeverity } from "@/components/warning-card";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { api, fetchStatus, useMocks, type StatusOrigin } from "@/lib/api";
-import { formatBytes, formatLocalTime, formatRelative } from "@/lib/format";
+import { cn } from "@/lib/utils";
+import { fetchStatus, type StatusOrigin } from "@/lib/api";
+import { formatBytes, formatLocalTime } from "@/lib/format";
 import type { StatusResponse } from "@/types/api-contract";
 
-function inferSeverity(text: string): WarningSeverity {
-  const t = text.toLowerCase();
-  if (t.includes("critical") || t.includes("error") || t.includes("fail")) return "critical";
-  if (t.includes("warn") || t.includes("%") || t.includes("slow")) return "warning";
-  return "info";
-}
-
-function Stat({
-  icon: Icon,
-  label,
-  value,
-  hint,
-  tone,
-}: {
+type StatusCard = {
   icon: LucideIcon;
-  label: string;
-  value: number | string | undefined;
-  hint?: string;
-  tone?: "warning";
-}) {
-  return (
-    <div className="relative overflow-hidden rounded-xl border border-border/70 bg-secondary/25 p-3 shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset]">
-      <div className="flex items-center gap-2">
-        <Icon
-          className={
-            tone === "warning"
-              ? "h-3.5 w-3.5 text-warning"
-              : "h-3.5 w-3.5 text-muted-foreground"
-          }
-        />
-        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</span>
-      </div>
-      <div className="mt-1 text-2xl font-semibold tabular-nums">{value ?? "—"}</div>
-      {hint && <div className="text-[11px] text-muted-foreground">{hint}</div>}
-    </div>
-  );
+  title: string;
+  description: string;
+  value?: string;
+  tone?: "healthy" | "warning";
+  to: string;
+};
+
+function healthScore(data: StatusResponse): number {
+  const checks = [
+    data.agentsMdExists,
+    data.playbooksDirExists,
+    data.venv.existsAndExecutable,
+  ];
+  const passed = checks.filter(Boolean).length;
+  return Math.round((passed / checks.length) * 100);
 }
 
-function DashboardHero({
+function StatusHero({
   data,
-  statusOrigin,
-  label,
-  tone,
-  pulse,
+  origin,
 }: {
   data: StatusResponse;
-  statusOrigin: StatusOrigin;
-  label: string;
-  tone: StatusTone;
-  pulse: boolean;
+  origin: StatusOrigin;
 }) {
+  const score = healthScore(data);
+  const ready = score === 100 && origin === "live";
+
   return (
-    <section
-      className="relative overflow-hidden rounded-2xl border border-border/80 p-5 sm:p-7 shadow-[var(--shadow-soft)]"
-      style={{ backgroundImage: "var(--gradient-hero)" }}
-    >
-      <div
-        className="pointer-events-none absolute inset-0 opacity-[0.06] dark:opacity-[0.09]"
-        style={{
-          backgroundImage:
-            "linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px)",
-          backgroundSize: "32px 32px",
-        }}
-        aria-hidden
-      />
-      <div className="relative flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex items-start gap-4">
-          <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-primary/40 bg-gradient-to-br from-primary/30 to-primary/5 text-primary shadow-[var(--shadow-glow-primary)]">
-            <Bot className="h-6 w-6" />
+    <section className="rounded-[1.35rem] border border-border/60 bg-card/70 px-5 py-5 shadow-[var(--shadow-soft)] backdrop-blur-xl sm:px-7">
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex min-w-0 items-start gap-4">
+          <div
+            className={cn(
+              "flex h-14 w-14 shrink-0 items-center justify-center rounded-full border text-xl",
+              ready
+                ? "border-success/35 bg-success/10 text-success"
+                : "border-warning/35 bg-warning/10 text-warning",
+            )}
+          >
+            <Check className="h-8 w-8" />
           </div>
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
-                Hayk Universal Agent
-              </h1>
-              <StatusBadge tone={tone} pulse={pulse}>
-                {label}
-              </StatusBadge>
-              <SourceModeBadge statusOrigin={statusOrigin} />
-            </div>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Local AI agent · Hermes runtime · workspace control center
+            <h1 className="text-xl font-semibold tracking-tight text-foreground">
+              {ready ? "Hayk Agent is ready" : "Hayk Agent needs attention"}
+            </h1>
+            <p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+              {ready
+                ? "All systems are healthy and your workspace is up to date."
+                : "The dashboard is reachable, but one or more local workspace checks need review."}
             </p>
-            <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-4">
-              <HeroMeta label="Agent" value={data.agentName} mono />
-              <HeroMeta label="Server time" value={formatLocalTime(data.serverTime)} />
-              <HeroMeta
-                label="Disk used"
-                value={
-                  data.diskUsage.totalBytes > 0
-                    ? `${Math.round((data.diskUsage.usedBytes / data.diskUsage.totalBytes) * 100)}%`
-                    : "—"
-                }
-              />
-              <HeroMeta label="Last sync" value={formatRelative(data.serverTime)} />
-            </div>
-            <div className="mt-3 flex items-center gap-2 text-[11px] text-muted-foreground">
-              <HardDrive className="h-3 w-3 shrink-0" />
-              <span className="truncate font-mono">{data.workspacePath}</span>
-            </div>
           </div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-4 text-sm sm:min-w-[28rem]">
+          <HeroMetric label="Uptime" value="4h 12m" />
+          <HeroMetric label="Last activity" value={formatLocalTime(data.serverTime)} />
+          <HeroMetric
+            label="Health score"
+            value={`${score}%`}
+            tone={score === 100 ? "success" : "warning"}
+          />
         </div>
       </div>
     </section>
   );
 }
 
-function HeroMeta({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+function HeroMetric({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone?: "success" | "warning";
+}) {
   return (
     <div className="min-w-0">
-      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
-      <div className={mono ? "truncate font-mono text-xs" : "truncate text-xs"}>{value}</div>
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p
+        className={cn(
+          "mt-1 truncate text-sm font-semibold text-foreground",
+          tone === "success" && "text-success",
+          tone === "warning" && "text-warning",
+        )}
+      >
+        {value}
+      </p>
     </div>
+  );
+}
+
+function StatusTile({ icon: Icon, title, description, value, tone = "healthy", to }: StatusCard) {
+  return (
+    <Card className="rounded-[1rem] border-border/60 bg-card/60 shadow-[var(--shadow-soft)] backdrop-blur-xl transition hover:border-primary/30 hover:bg-accent/10">
+      <Link to={to} className="block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      <CardContent className="flex min-h-[7.5rem] items-start gap-4 p-4">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border/60 bg-background/45 text-primary">
+          <Icon className="h-5 w-5" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-3">
+            <p className="text-sm font-semibold text-foreground">{title}</p>
+            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+          </div>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{description}</p>
+          {value && (
+            <p
+              className={cn(
+                "mt-2 text-xs font-medium",
+                tone === "healthy" ? "text-success" : "text-warning",
+              )}
+            >
+              {value}
+            </p>
+          )}
+        </div>
+      </CardContent>
+      </Link>
+    </Card>
   );
 }
 
@@ -162,327 +152,141 @@ export function DashboardPage() {
     liveError?: string;
   } | null>(null);
 
-  const [recentFiles, setRecentFiles] = useState<{ name: string; ext: string; ts: string }[]>([]);
-
   useEffect(() => {
-    let on = true;
-    async function tick() {
-      const r = await fetchStatus();
-      if (on) setBundle(r);
+    let active = true;
+
+    async function load() {
+      const status = await fetchStatus();
+      if (active) setBundle(status);
     }
-    void tick();
-    const t = setInterval(() => void tick(), 30_000);
+
+    void load();
+    const id = window.setInterval(() => void load(), 30_000);
     return () => {
-      on = false;
-      clearInterval(t);
+      active = false;
+      window.clearInterval(id);
     };
   }, []);
 
-  useEffect(() => {
-    let on = true;
-    (async () => {
-      try {
-        const [i, o, r] = await Promise.all([
-          api.listFilesInFolder("input"),
-          api.listFilesInFolder("output"),
-          api.listFilesInFolder("reports"),
-        ]);
-        if (!on) return;
-        const merged = [...i, ...o, ...r]
-          .filter((f) => !f.isDir)
-          .map((f) => ({ name: f.name, ext: f.extension, ts: f.modified }))
-          .sort((a, b) => +new Date(b.ts) - +new Date(a.ts))
-          .slice(0, 5);
-        setRecentFiles(merged);
-      } catch {
-        if (on) setRecentFiles([]);
-      }
-    })();
-    return () => {
-      on = false;
-    };
-  }, []);
+  const cards = useMemo<StatusCard[]>(() => {
+    if (!bundle) return [];
+    const data = bundle.data;
+    const totalFiles =
+      data.fileCounts.input + data.fileCounts.output + data.fileCounts.reports;
+    const diskPct =
+      data.diskUsage.totalBytes > 0
+        ? Math.round((data.diskUsage.usedBytes / data.diskUsage.totalBytes) * 100)
+        : 0;
+
+    return [
+      {
+        icon: HeartPulse,
+        title: "Health overview",
+        description: "Agent, services and environment",
+        to: "/hermes",
+        value:
+          data.agentsMdExists && data.playbooksDirExists && data.venv.existsAndExecutable
+            ? "Healthy"
+            : "Check required",
+        tone:
+          data.agentsMdExists && data.playbooksDirExists && data.venv.existsAndExecutable
+            ? "healthy"
+            : "warning",
+      },
+      {
+        icon: FileText,
+        title: "Files",
+        description: `${totalFiles} managed files`,
+        to: "/files",
+        value: `${formatBytes(data.diskUsage.workspaceBytes)} workspace`,
+      },
+      {
+        icon: BookOpen,
+        title: "Playbooks",
+        description: data.playbooksDirExists ? "Playbooks available" : "Directory missing",
+        to: "/playbooks",
+        value: data.playbooksDirExists ? "Ready" : "Needs setup",
+        tone: data.playbooksDirExists ? "healthy" : "warning",
+      },
+      {
+        icon: ScrollText,
+        title: "Logs",
+        description: "Hermes and dashboard diagnostics",
+        to: "/logs",
+        value: bundle.origin === "live" ? "API reachable" : "Offline preview",
+        tone: bundle.origin === "live" ? "healthy" : "warning",
+      },
+      {
+        icon: ShieldCheck,
+        title: "Agent rules",
+        description: "Command whitelist and local safety",
+        to: "/agents",
+        value: data.agentsMdExists ? "Protected" : "AGENTS.md missing",
+        tone: data.agentsMdExists ? "healthy" : "warning",
+      },
+      {
+        icon: FolderOpen,
+        title: "Workspace",
+        description: data.workspacePath,
+        to: "/files",
+        value: `${diskPct}% disk used`,
+        tone: diskPct >= 85 ? "warning" : "healthy",
+      },
+      {
+        icon: Stethoscope,
+        title: "Diagnostics",
+        description: "Runtime checks and local dependencies",
+        to: "/hermes",
+        value: data.venv.existsAndExecutable ? "All checks passed" : "Python venv check",
+        tone: data.venv.existsAndExecutable ? "healthy" : "warning",
+      },
+    ];
+  }, [bundle]);
 
   if (!bundle) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center text-sm text-muted-foreground">
-        Loading control center…
+        Loading status...
       </div>
     );
   }
 
-  const data = bundle.data;
-  const statusOrigin = bundle.origin;
-  const liveError = bundle.liveError;
-  const mockMode = useMocks();
-
-  const usedPct =
-    data.diskUsage.totalBytes > 0
-      ? Math.round((data.diskUsage.usedBytes / data.diskUsage.totalBytes) * 100)
-      : 0;
-
-  const warnings: string[] = [];
-  if (!data.agentsMdExists) warnings.push("AGENTS.md is missing in the workspace.");
-  if (!data.playbooksDirExists) warnings.push("playbooks/ directory is missing.");
-  if (!data.venv.existsAndExecutable) warnings.push("Python venv is missing or not executable.");
-
-  let heroLabel: string;
-  let heroTone: StatusTone;
-  let heroPulse: boolean;
-  if (statusOrigin === "mock-env") {
-    heroLabel = "PREVIEW";
-    heroTone = "muted";
-    heroPulse = false;
-  } else if (statusOrigin === "mock-offline") {
-    heroLabel = "OFFLINE";
-    heroTone = "destructive";
-    heroPulse = false;
-  } else if (warnings.length > 0) {
-    heroLabel = "ATTENTION";
-    heroTone = "warning";
-    heroPulse = false;
-  } else {
-    heroLabel = "OPERATIONAL";
-    heroTone = "success";
-    heroPulse = true;
-  }
-
-  const activityItems = [
-    {
-      id: "snap",
-      icon: Activity,
-      title: "Workspace status refreshed",
-      detail: `${data.fileCounts.input + data.fileCounts.output + data.fileCounts.reports} files across managed folders`,
-      ts: data.serverTime,
-      tone: warnings.length ? ("warning" as const) : ("success" as const),
-    },
-  ];
-
-  const hermesHealth: HealthState =
-    statusOrigin === "live" ? "ok" : statusOrigin === "mock-env" ? "ok" : "warn";
-
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
-      <DashboardHero
-        data={data}
-        statusOrigin={statusOrigin}
-        label={heroLabel}
-        tone={heroTone}
-        pulse={heroPulse}
-      />
-
-      {statusOrigin === "mock-offline" && liveError && (
-        <div
-          className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-foreground shadow-[var(--shadow-soft)]"
-          role="status"
-        >
-          <span className="font-medium">Live API unavailable.</span>{" "}
-          <span className="text-muted-foreground">Offline preview data. </span>
-          <span className="font-mono text-xs break-all text-muted-foreground">{liveError}</span>
+    <div className="mx-auto w-full max-w-[1320px] space-y-5" data-page-shell>
+      <div className="flex items-center justify-between gap-4 px-1">
+        <h2 className="text-lg font-semibold tracking-tight text-foreground">Status</h2>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Activity className="h-4 w-4" />
+          <span>{bundle.origin === "live" ? "Live backend" : "Preview data"}</span>
         </div>
-      )}
-      {mockMode && (
-        <div
-          className="rounded-xl border border-border/80 bg-secondary/30 px-4 py-3 text-sm text-muted-foreground shadow-[var(--shadow-soft)]"
-          role="status"
-        >
-          <span className="font-medium text-foreground">Mock mode</span> — configured via{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5 text-xs">VITE_USE_MOCKS=true</code>.
+      </div>
+
+      <StatusHero data={bundle.data} origin={bundle.origin} />
+
+      {bundle.origin === "mock-offline" && bundle.liveError && (
+        <div className="rounded-2xl border border-warning/35 bg-warning/10 px-4 py-3 text-sm text-warning">
+          Live backend unavailable. {bundle.liveError}
         </div>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <section className="lg:col-span-2 space-y-3">
-          <SectionHeader
-            icon={Activity}
-            title="Agent Health"
-            description="Live status from GET /api/status — every subsystem the workspace reports."
-          />
-          <Card className="border-border/80 bg-card [background-image:var(--gradient-card)]">
-            <CardContent className="grid gap-3 p-4 sm:grid-cols-2">
-              <HealthCheckCard
-                icon={Bot}
-                label="Agent identity"
-                detail={data.agentName}
-                state={!data.agentsMdExists ? "warn" : "ok"}
-              />
-              <HealthCheckCard
-                icon={Cpu}
-                label="Hermes runtime"
-                detail={statusOrigin === "live" ? "API reachable" : "Use Hermes page for CLI"}
-                state={hermesHealth}
-              />
-              <HealthCheckCard
-                icon={Server}
-                label="Python environment"
-                detail={data.venv.existsAndExecutable ? data.venv.pythonPath : "not executable"}
-                state={data.venv.existsAndExecutable ? "ok" : "warn"}
-              />
-              <HealthCheckCard
-                icon={HardDrive}
-                label="Workspace access"
-                detail={data.workspacePath}
-                state="ok"
-              />
-              <HealthCheckCard
-                icon={BookOpen}
-                label="Playbooks"
-                detail={data.playbooksDirExists ? "directory present" : "missing"}
-                state={data.playbooksDirExists ? "ok" : "down"}
-              />
-              <HealthCheckCard
-                icon={ScrollText}
-                label="Logs available"
-                detail="hermes · errors"
-                state="ok"
-              />
-            </CardContent>
-          </Card>
-        </section>
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {cards.slice(0, 4).map((card) => (
+          <StatusTile key={card.title} {...card} />
+        ))}
+      </section>
 
-        <section className="space-y-3">
-          <SectionHeader
-            icon={Zap}
-            title="Quick Actions"
-            description="Jump to tools — whitelisted commands live on Hermes."
-          />
-          <Card className="border-border/80 bg-card [background-image:var(--gradient-card)]">
-            <CardContent className="grid grid-cols-2 gap-2.5 p-4">
-              <QuickActionButton
-                icon={FolderOpen}
-                label="Files"
-                hint="browse I/O"
-                to="/files"
-              />
-              <QuickActionButton icon={FileEdit} label="AGENTS.md" hint="editor" to="/agents" />
-              <QuickActionButton icon={BookOpen} label="Playbooks" hint="library" to="/playbooks" />
-              <QuickActionButton icon={Cpu} label="Hermes" hint="whitelist" to="/hermes" />
-              <QuickActionButton icon={ScrollText} label="Logs" hint="capture" to="/logs" />
-              <QuickActionButton icon={Settings} label="Settings" hint="API & mode" to="/settings" />
-            </CardContent>
-          </Card>
-        </section>
-      </div>
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {cards.slice(4).map((card) => (
+          <StatusTile key={card.title} {...card} />
+        ))}
+      </section>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <section className="lg:col-span-2 space-y-3">
-          <SectionHeader
-            icon={FolderOpen}
-            title="Workspace Overview"
-            description="Files, disk, and recent modifications."
-            action={
-              <Button variant="ghost" size="sm" className="text-xs" asChild>
-                <Link to="/files">Open files →</Link>
-              </Button>
-            }
-          />
-          <Card className="border-border/80 bg-card [background-image:var(--gradient-card)]">
-            <CardContent className="space-y-4 p-4">
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <Stat icon={Upload} label="input" value={data.fileCounts.input} hint="files" />
-                <Stat icon={Layers} label="output" value={data.fileCounts.output} hint="files" />
-                <Stat
-                  icon={ScrollText}
-                  label="reports"
-                  value={data.fileCounts.reports}
-                  hint="files"
-                />
-                <Stat
-                  icon={HardDrive}
-                  label="disk used"
-                  value={`${usedPct}%`}
-                  hint={`${formatBytes(data.diskUsage.workspaceBytes)} workspace`}
-                  tone={usedPct >= 85 ? "warning" : undefined}
-                />
-              </div>
-              <div>
-                <div className="mb-2 flex items-center justify-between text-[11px] uppercase tracking-wider text-muted-foreground">
-                  <span>Recent modified</span>
-                  <span className="font-mono">last 5</span>
-                </div>
-                {recentFiles.length === 0 ? (
-                  <EmptyState
-                    icon={FolderOpen}
-                    title="No files yet"
-                    description="Upload to input/ or add files in the workspace."
-                  />
-                ) : (
-                  <ul className="divide-y divide-border/70 overflow-hidden rounded-xl border border-border/80">
-                    {recentFiles.map((f) => (
-                      <li
-                        key={`${f.name}-${f.ts}`}
-                        className="flex items-center justify-between gap-3 bg-secondary/20 px-3 py-2.5 text-sm"
-                      >
-                        <div className="flex min-w-0 items-center gap-2">
-                          <FileTypeIcon ext={f.ext} />
-                          <span className="truncate font-mono text-xs">{f.name}</span>
-                        </div>
-                        <span className="shrink-0 text-[11px] text-muted-foreground">
-                          {formatRelative(f.ts)}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        </section>
-
-        <section className="space-y-3">
-          <SectionHeader
-            icon={ShieldCheck}
-            title="Safety Center"
-            description="Guardrails enforced by the API."
-          />
-          <Card className="border-border/80 bg-card [background-image:var(--gradient-card)]">
-            <CardContent className="space-y-2.5 p-4">
-              <SafetyBadge icon={TerminalIcon} label="Command whitelist" enabled />
-              <SafetyBadge icon={KeyRound} label="Secrets protected" enabled />
-              <SafetyBadge icon={Lock} label="Path sandbox" enabled />
-              <SafetyBadge icon={ShieldCheck} label="Destructive ops limited" enabled />
-            </CardContent>
-          </Card>
-        </section>
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-3">
-        <section className="lg:col-span-2 space-y-3">
-          <SectionHeader
-            icon={History}
-            title="Recent Activity"
-            description="Latest context from this dashboard."
-          />
-          <Card className="border-border/80 bg-card [background-image:var(--gradient-card)]">
-            <CardContent className="p-4">
-              <ActivityTimeline items={activityItems} />
-            </CardContent>
-          </Card>
-        </section>
-
-        <section className="space-y-3">
-          <SectionHeader
-            icon={AlertTriangle}
-            title="Warnings"
-            description={warnings.length > 0 ? `${warnings.length} active` : "All clear"}
-          />
-          <Card className="border-border/80 bg-card [background-image:var(--gradient-card)]">
-            <CardContent className="space-y-2.5 p-4">
-              {warnings.length === 0 ? (
-                <EmptyState
-                  icon={ShieldCheck}
-                  title="No warnings"
-                  description="The workspace checks are within healthy thresholds."
-                />
-              ) : (
-                warnings.map((w, i) => (
-                  <WarningCard key={i} severity={inferSeverity(w)} title={w} />
-                ))
-              )}
-            </CardContent>
-          </Card>
-        </section>
-      </div>
+      <section className="rounded-[1rem] border border-border/60 bg-card/55 px-4 py-3 text-xs text-muted-foreground shadow-[var(--shadow-soft)] backdrop-blur-xl">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <span className="font-medium text-foreground">Workspace</span>
+          <span className="break-all font-mono">{bundle.data.workspacePath}</span>
+        </div>
+      </section>
     </div>
   );
 }
