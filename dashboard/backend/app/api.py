@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import re
 import shutil
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -12,10 +14,28 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel, Field, field_validator
 
-from app.config import AGENT_NAME, get_workspace_root
+from app.config import AGENT_NAME, get_chat_timeout_seconds, get_workspace_root
 from app.safety import is_whitelisted_command, list_whitelisted_commands, safe_join
 
 router = APIRouter()
+
+_VENV_PY_PARTS = (".venv", "bin", "python")
+
+
+def _venv_python_path(ws: Path) -> Path:
+    """Workspace .venv interpreter path without safe_join/resolve-to-target.
+
+    Standard virtualenvs symlink ``python`` to a system interpreter outside the
+    workspace; ``safe_join`` rejects those. We only require the symlink path (as
+    joined under the workspace root) to lie under that root — no target resolution.
+    """
+    workspace_root = ws.resolve()
+    candidate = workspace_root.joinpath(*_VENV_PY_PARTS)
+    try:
+        candidate.relative_to(workspace_root)
+    except ValueError as exc:
+        raise PermissionError("Venv python path escapes workspace") from exc
+    return candidate
 
 
 def workspace_dep() -> Path:
@@ -69,7 +89,7 @@ def get_status(ws: Path = Depends(workspace_dep)) -> dict[str, Any]:
     input_d = safe_join(ws, "input")
     output_d = safe_join(ws, "output")
     reports_d = safe_join(ws, "reports")
-    venv_python = safe_join(ws, ".venv", "bin", "python")
+    venv_python = _venv_python_path(ws)
 
     venv_ok = venv_python.is_file() and os.access(venv_python, os.X_OK)
 
@@ -96,6 +116,7 @@ def get_status(ws: Path = Depends(workspace_dep)) -> dict[str, Any]:
             "pythonPath": str(venv_python),
             "existsAndExecutable": venv_ok,
         },
+        "chatTimeoutSeconds": get_chat_timeout_seconds(),
     }
 
 
@@ -296,14 +317,41 @@ def delete_playbook(name: str, ws: Path = Depends(workspace_dep)) -> dict[str, s
     return {"ok": "true"}
 
 
-async def _run_cmd(args: list[str], timeout: float = 120.0) -> tuple[int, str]:
-    proc = await asyncio.create_subprocess_exec(
-        *args,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-        cwd=str(get_workspace_root()),
-        env={**os.environ, "LC_ALL": "C.UTF-8"},
+def _hermes_bin() -> str:
+    """Hermes executable for subprocess argv[0]; systemd may set ``HERMES_BIN`` to a full path."""
+    return os.environ.get("HERMES_BIN", "hermes")
+
+
+def _hermes_unavailable_error(exc: OSError) -> HTTPException:
+    return HTTPException(
+        status_code=503,
+        detail=(
+            f"Hermes is not available on this machine ({_hermes_bin()}). "
+            "Install Hermes or set HERMES_BIN to the executable path. "
+            f"Original error: {exc}"
+        ),
     )
+
+
+def _hermes_logs_since_argv() -> list[str]:
+    return [_hermes_bin(), "logs", "--since", "1h"]
+
+
+def _hermes_logs_errors_argv() -> list[str]:
+    return [_hermes_bin(), "logs", "errors"]
+
+
+async def _run_cmd(args: list[str], timeout: float = 120.0) -> tuple[int, str]:
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            cwd=str(get_workspace_root()),
+            env={**os.environ, "LC_ALL": "C.UTF-8"},
+        )
+    except FileNotFoundError:
+        return 127, f"Command not found: {args[0]}\n"
     try:
         out, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except asyncio.TimeoutError:
@@ -316,12 +364,6 @@ async def _run_cmd(args: list[str], timeout: float = 120.0) -> tuple[int, str]:
     return code, text
 
 
-HERMES_LOG_CMDS: dict[str, list[str]] = {
-    "hermes": ["hermes", "logs", "--since", "1h"],
-    "errors": ["hermes", "logs", "errors"],
-}
-
-
 def _tail_lines(s: str, max_lines: int = 300) -> str:
     lines = s.splitlines()
     if len(lines) <= max_lines:
@@ -331,18 +373,36 @@ def _tail_lines(s: str, max_lines: int = 300) -> str:
 
 @router.get("/logs/hermes")
 async def get_logs_hermes() -> PlainTextResponse:
-    _, text = await _run_cmd(HERMES_LOG_CMDS["hermes"], timeout=180.0)
+    _, text = await _run_cmd(_hermes_logs_since_argv(), timeout=180.0)
     return PlainTextResponse(_tail_lines(text, 300), media_type="text/plain; charset=utf-8")
 
 
 @router.get("/logs/errors")
 async def get_logs_errors() -> PlainTextResponse:
-    _, text = await _run_cmd(HERMES_LOG_CMDS["errors"], timeout=180.0)
+    _, text = await _run_cmd(_hermes_logs_errors_argv(), timeout=180.0)
     return PlainTextResponse(_tail_lines(text, 300), media_type="text/plain; charset=utf-8")
 
 
 class CommandBody(BaseModel):
     command: str
+
+
+class ChatSendBody(BaseModel):
+    """One-shot Hermes message via ``hermes -z`` (no shell, argv list only)."""
+
+    message: str = Field(..., description="UTF-8 message passed to Hermes -z")
+
+    @field_validator("message")
+    @classmethod
+    def _validate_message(cls, v: str) -> str:
+        if not isinstance(v, str):
+            raise TypeError("message must be a string")
+        s = v.strip()
+        if not s:
+            raise ValueError("message must not be empty")
+        if len(s) > 8000:
+            raise ValueError("message exceeds maximum length of 8000 characters")
+        return s
 
 
 _BROWSER_MODELS: dict[str, tuple[str, str]] = {
@@ -352,19 +412,6 @@ _BROWSER_MODELS: dict[str, tuple[str, str]] = {
     "smart": ("AGENT_SMART_MODEL", "z-ai/glm-4.5-air:free"),
     "backup": ("AGENT_BACKUP_MODEL", "openai/gpt-oss-20b:free"),
 }
-
-
-def _hermes_bin() -> str:
-    return os.environ.get("HERMES_BIN", "hermes")
-
-
-def _chat_timeout_seconds() -> int:
-    raw = os.environ.get("CHAT_TIMEOUT_SECONDS", "300").strip()
-    try:
-        value = int(raw, 10)
-    except ValueError:
-        return 300
-    return value if 30 <= value <= 600 else 300
 
 
 def _paid_models_allowed() -> bool:
@@ -468,9 +515,390 @@ def _browser_analysis_prompt(body: BrowserAnalyzeBody) -> str:
     )
 
 
-@router.get("/commands/whitelist")
-def commands_whitelist() -> dict[str, list[str]]:
-    return {"commands": list_whitelisted_commands()}
+_SESSION_ID_LINE_RE = re.compile(r"^\s*session_id:\s*(\S+)\s*$", re.IGNORECASE)
+_RESUMED_SESSION_LINE_RE = re.compile(
+    r"^\s*(?:\u21bb\s+)?Resumed session\b.*$",
+    re.IGNORECASE,
+)
+_SESSION_ID_SAFE_RE = re.compile(r"^[a-zA-Z0-9_-]{1,128}$")
+
+
+def _parse_hermes_session_chat_stdout(raw: str) -> tuple[str, str | None, str | None]:
+    """Remove ``session_id:`` and resume banner lines; return response, id, optional warning."""
+    extracted: str | None = None
+    out_lines: list[str] = []
+    for line in raw.splitlines():
+        m = _SESSION_ID_LINE_RE.match(line)
+        if m:
+            extracted = m.group(1)
+            continue
+        if _RESUMED_SESSION_LINE_RE.match(line):
+            continue
+        out_lines.append(line)
+    text = "\n".join(out_lines).strip()
+    warning = None
+    if extracted is None:
+        warning = (
+            "Hermes did not emit a session_id line; the next message may start a new session."
+        )
+    return text, extracted, warning
+
+
+def _hermes_session_chat_argv(message: str, resume_id: str | None) -> list[str]:
+    """Fixed argv for ``hermes chat -q … -Q [--resume ID] --source tool -t …`` (no user flags)."""
+    exe = _hermes_bin()
+    if resume_id:
+        return [
+            exe,
+            "chat",
+            "-q",
+            message,
+            "-Q",
+            "--resume",
+            resume_id,
+            "--source",
+            "tool",
+            "-t",
+            "terminal,file,memory",
+        ]
+    return [
+        exe,
+        "chat",
+        "-q",
+        message,
+        "-Q",
+        "--source",
+        "tool",
+        "-t",
+        "terminal,file,memory",
+    ]
+
+
+class ChatSessionSendBody(BaseModel):
+    """Hermes persistent session turn via ``hermes chat -q -Q`` (optional ``--resume``)."""
+
+    message: str = Field(..., description="User message passed to Hermes -q")
+    sessionId: str | None = Field(
+        default=None,
+        description="Hermes session id from prior turn, or null to start",
+    )
+
+    @field_validator("message")
+    @classmethod
+    def _validate_session_message(cls, v: str) -> str:
+        if not isinstance(v, str):
+            raise TypeError("message must be a string")
+        s = v.strip()
+        if not s:
+            raise ValueError("message must not be empty")
+        if len(s) > 8000:
+            raise ValueError("message exceeds maximum length of 8000 characters")
+        return s
+
+    @field_validator("sessionId", mode="before")
+    @classmethod
+    def _coerce_session_id(cls, v: Any) -> str | None:
+        if v is None:
+            return None
+        if isinstance(v, str) and not v.strip():
+            return None
+        if not isinstance(v, str):
+            raise TypeError("sessionId must be a string or null")
+        return v.strip()
+
+    @field_validator("sessionId")
+    @classmethod
+    def _validate_session_id(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        if len(v) > 128:
+            raise ValueError("sessionId exceeds maximum length of 128 characters")
+        if not _SESSION_ID_SAFE_RE.fullmatch(v):
+            raise ValueError(
+                "sessionId must contain only letters, numbers, underscore, and hyphen",
+            )
+        return v
+
+
+@router.get("/chat/sessions")
+async def chat_sessions() -> dict[str, Any]:
+    """List recent Hermes sessions for the dashboard."""
+    code, text = await _run_cmd([_hermes_bin(), "sessions", "list"], timeout=30.0)
+    if code == 127:
+        return {"sessions": []}
+    if code != 0:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Hermes sessions list failed with code {code}: {text[-1000:]}",
+        )
+
+    sessions: list[dict[str, str]] = []
+    for raw in text.splitlines():
+        line = raw.rstrip()
+        if not line or line.startswith("Title ") or line.startswith("─"):
+            continue
+
+        parts = re.split(r"\s{2,}", line.strip())
+        if len(parts) < 4:
+            continue
+
+        session_id = parts[-1].strip()
+        if session_id == "ID":
+            continue
+        if not _SESSION_ID_SAFE_RE.fullmatch(session_id):
+            continue
+
+        title = parts[0].strip()
+        preview = parts[1].strip()
+        last_active = " ".join(parts[2:-1]).strip()
+
+        sessions.append(
+            {
+                "sessionId": session_id,
+                "title": "" if title == "—" else title,
+                "preview": "" if preview == "—" else preview,
+                "lastActive": last_active,
+            }
+        )
+
+    return {"sessions": sessions}
+
+
+@router.delete("/chat/sessions/{session_id}")
+async def delete_chat_session(session_id: str) -> dict[str, str]:
+    """Delete a Hermes session from the local session store."""
+    if not _SESSION_ID_SAFE_RE.fullmatch(session_id):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid session id",
+        )
+
+    code, text = await _run_cmd(
+        [_hermes_bin(), "sessions", "delete", "--yes", session_id],
+        timeout=30.0,
+    )
+    if code != 0:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Hermes session delete failed with code {code}: {text[-1000:]}",
+        )
+
+    return {"ok": "true", "sessionId": session_id}
+
+
+@router.get("/chat/sessions/{session_id}/transcript")
+async def chat_session_transcript(session_id: str) -> dict[str, Any]:
+    """Load user/assistant transcript from a Hermes session export."""
+    if not _SESSION_ID_SAFE_RE.fullmatch(session_id):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid session id",
+        )
+
+    code, text = await _run_cmd(
+        [_hermes_bin(), "sessions", "export", "--session-id", session_id, "-"],
+        timeout=60.0,
+    )
+    if code != 0:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Hermes session export failed with code {code}: {text[-1000:]}",
+        )
+
+    session_obj: dict[str, Any] | None = None
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or not line.startswith("{"):
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if obj.get("id") == session_id:
+            session_obj = obj
+            break
+
+    if session_obj is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    out: list[dict[str, Any]] = []
+    for m in session_obj.get("messages") or []:
+        role = m.get("role")
+        content = m.get("content")
+        if role not in ("user", "assistant"):
+            continue
+        if not isinstance(content, str) or not content.strip():
+            continue
+        out.append(
+            {
+                "id": str(m.get("id") or ""),
+                "role": role,
+                "content": content,
+                "timestamp": m.get("timestamp"),
+            }
+        )
+
+    return {
+        "sessionId": session_id,
+        "title": session_obj.get("title"),
+        "messageCount": len(out),
+        "messages": out,
+    }
+
+
+@router.post("/chat/session-send")
+async def chat_session_send(
+    body: ChatSessionSendBody,
+    ws: Path = Depends(workspace_dep),
+) -> dict[str, Any]:
+    """Run ``hermes chat -q`` with optional ``--resume``; parse ``session_id`` from stdout."""
+    timeout_sec = get_chat_timeout_seconds()
+    argv = _hermes_session_chat_argv(body.message, body.sessionId)
+    started = time.monotonic()
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *argv,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            cwd=str(ws),
+            env={**os.environ, "LC_ALL": "C.UTF-8"},
+        )
+    except OSError as exc:
+        raise _hermes_unavailable_error(exc) from exc
+
+    try:
+        out, _ = await asyncio.wait_for(
+            proc.communicate(),
+            timeout=float(timeout_sec),
+        )
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+        elapsed_ms = int((time.monotonic() - started) * 1000)
+        return {
+            "response": f"Hermes timed out after {timeout_sec} seconds.\n",
+            "sessionId": body.sessionId,
+            "exitCode": 124,
+            "durationMs": elapsed_ms,
+            "mode": "hermes-session",
+            "parseWarning": None,
+        }
+
+    raw = out.decode("utf-8", errors="replace")
+    code = proc.returncode if proc.returncode is not None else -1
+    elapsed_ms = int((time.monotonic() - started) * 1000)
+    response_text, parsed_sid, parse_warn = _parse_hermes_session_chat_stdout(raw)
+    if code != 0:
+        response_text_inner = response_text
+        response_text = (
+            f"Hermes exited with code {code}.\n\n{response_text_inner}".strip() + "\n"
+        ).strip()
+    return {
+        "response": response_text,
+        "sessionId": parsed_sid,
+        "exitCode": code,
+        "durationMs": elapsed_ms,
+        "mode": "hermes-session",
+        "parseWarning": parse_warn,
+    }
+
+
+@router.post("/chat/send")
+async def chat_send(body: ChatSendBody, ws: Path = Depends(workspace_dep)) -> dict[str, Any]:
+    """Run ``hermes -z <message>`` from the workspace root; no user-controlled flags."""
+    timeout_sec = get_chat_timeout_seconds()
+    started = time.monotonic()
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            _hermes_bin(),
+            "-z",
+            body.message,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            cwd=str(ws),
+            env={**os.environ, "LC_ALL": "C.UTF-8"},
+        )
+    except OSError as exc:
+        raise _hermes_unavailable_error(exc) from exc
+
+    try:
+        out, _ = await asyncio.wait_for(
+            proc.communicate(),
+            timeout=float(timeout_sec),
+        )
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+        elapsed_ms = int((time.monotonic() - started) * 1000)
+        return {
+            "response": f"Hermes timed out after {timeout_sec} seconds.\n",
+            "exitCode": 124,
+            "durationMs": elapsed_ms,
+            "mode": "oneshot",
+        }
+
+    text = out.decode("utf-8", errors="replace")
+    code = proc.returncode if proc.returncode is not None else -1
+    elapsed_ms = int((time.monotonic() - started) * 1000)
+    response_text = text
+    if code != 0:
+        response_text = (
+            f"Hermes exited with code {code}.\n\n{response_text}".strip() + "\n"
+        ).strip()
+    return {
+        "response": response_text,
+        "exitCode": code,
+        "durationMs": elapsed_ms,
+        "mode": "oneshot",
+    }
+
+
+@router.post("/chat/web-send")
+async def chat_web_send(body: ChatSendBody, ws: Path = Depends(workspace_dep)) -> dict[str, Any]:
+    """Run `hermes -t web -z <message>` for internet/search-focused requests."""
+    timeout_sec = get_chat_timeout_seconds()
+    started = time.monotonic()
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            _hermes_bin(),
+            "-t",
+            "web",
+            "-z",
+            body.message,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            cwd=str(ws),
+            env={**os.environ, "LC_ALL": "C.UTF-8"},
+        )
+    except OSError as exc:
+        raise _hermes_unavailable_error(exc) from exc
+
+    try:
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout=float(timeout_sec))
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+        elapsed_ms = int((time.monotonic() - started) * 1000)
+        return {
+            "response": f"Hermes web mode timed out after {timeout_sec} seconds.\n",
+            "exitCode": 124,
+            "durationMs": elapsed_ms,
+            "mode": "web-oneshot",
+        }
+
+    text = out.decode("utf-8", errors="replace")
+    code = proc.returncode if proc.returncode is not None else -1
+    elapsed_ms = int((time.monotonic() - started) * 1000)
+
+    if code != 0:
+        text = (f"Hermes exited with code {code}.\n\n{text}".strip() + "\n").strip()
+
+    return {
+        "response": text,
+        "exitCode": code,
+        "durationMs": elapsed_ms,
+        "mode": "web-oneshot",
+    }
 
 
 @router.post("/browser/analyze")
@@ -479,10 +907,10 @@ async def browser_analyze(
     ws: Path = Depends(workspace_dep),
 ) -> dict[str, Any]:
     """Analyze compact browser page context with a free-model Hermes one-shot."""
-    timeout_sec = _chat_timeout_seconds()
+    timeout_sec = get_chat_timeout_seconds()
     model = _browser_model_for(body.mode)
     prompt = _browser_analysis_prompt(body)
-    started = datetime.now(timezone.utc)
+    started = time.monotonic()
     try:
         proc = await asyncio.create_subprocess_exec(
             _hermes_bin(),
@@ -498,17 +926,14 @@ async def browser_analyze(
             env={**os.environ, "LC_ALL": "C.UTF-8"},
         )
     except OSError as exc:
-        raise HTTPException(
-            status_code=503,
-            detail=f"Hermes is not available on this machine ({_hermes_bin()}): {exc}",
-        ) from exc
+        raise _hermes_unavailable_error(exc) from exc
 
     try:
         out, _ = await asyncio.wait_for(proc.communicate(), timeout=float(timeout_sec))
     except asyncio.TimeoutError:
         proc.kill()
         await proc.wait()
-        elapsed_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
+        elapsed_ms = int((time.monotonic() - started) * 1000)
         return {
             "response": f"Hermes browser helper timed out after {timeout_sec} seconds.\n",
             "exitCode": 124,
@@ -520,7 +945,7 @@ async def browser_analyze(
 
     text = out.decode("utf-8", errors="replace")
     code = proc.returncode if proc.returncode is not None else -1
-    elapsed_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
+    elapsed_ms = int((time.monotonic() - started) * 1000)
     if code != 0:
         text = (f"Hermes exited with code {code}.\n\n{text}".strip() + "\n").strip()
 
@@ -532,6 +957,11 @@ async def browser_analyze(
         "model": model,
         "requestMode": body.mode,
     }
+
+
+@router.get("/commands/whitelist")
+def commands_whitelist() -> dict[str, list[str]]:
+    return {"commands": list_whitelisted_commands()}
 
 
 @router.post("/commands/run")

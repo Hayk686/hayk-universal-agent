@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -78,19 +79,6 @@ def _client_for_workspace(ws: Path) -> TestClient:
     return TestClient(app)
 
 
-@pytest.fixture
-def workspace(tmp_path: Path) -> Path:
-    ws = tmp_path / "agent-workspace"
-    for sub in ("input", "output", "reports", "playbooks"):
-        (ws / sub).mkdir(parents=True)
-    (ws / "input" / "ok.txt").write_text("ok", encoding="utf-8")
-    (ws / ".venv" / "bin").mkdir(parents=True)
-    (ws / ".venv" / "bin" / "python").write_text("#fake", encoding="utf-8")
-    (ws / "AGENTS.md").write_text("# agents", encoding="utf-8")
-    (ws / "playbooks" / "p.md").write_text("x", encoding="utf-8")
-    return ws
-
-
 def test_delete_only_managed_files(workspace: Path) -> None:
     client = _client_for_workspace(workspace)
     r = client.delete("/api/files", params={"path": "input/ok.txt"})
@@ -151,3 +139,33 @@ def test_command_runner_rejects_arbitrary(workspace: Path) -> None:
     client = _client_for_workspace(workspace)
     r = client.post("/api/commands/run", json={"command": "echo hacked"})
     assert r.status_code == 400
+
+
+def test_status_venv_python_symlink_target_outside_workspace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: /api/status must not 403 when .venv/bin/python points outside ws."""
+    monkeypatch.delenv("CHAT_TIMEOUT_SECONDS", raising=False)
+    ws = tmp_path / "agent-workspace"
+    for sub in ("input", "output", "reports", "playbooks"):
+        (ws / sub).mkdir(parents=True)
+    (ws / "AGENTS.md").write_text("# agents", encoding="utf-8")
+    (ws / ".venv" / "bin").mkdir(parents=True)
+    outside = tmp_path / "outside_python_stub"
+    outside.write_text("#!/bin/sh\necho ok\n", encoding="utf-8")
+    outside.chmod(0o755)
+    link = ws / ".venv" / "bin" / "python"
+    try:
+        link.symlink_to(outside)
+    except OSError:
+        pytest.skip("Could not create symlink (OS permissions)")
+
+    client = _client_for_workspace(ws)
+    r = client.get("/api/status")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["chatTimeoutSeconds"] == 300
+    norm_path = body["venv"]["pythonPath"].replace("\\", "/")
+    assert norm_path.endswith(".venv/bin/python")
+    if os.name != "nt":
+        assert body["venv"]["existsAndExecutable"] is True

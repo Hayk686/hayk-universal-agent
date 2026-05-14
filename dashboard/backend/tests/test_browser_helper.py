@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -10,15 +9,6 @@ from fastapi.testclient import TestClient
 
 import app.api as api_module
 from app.main import app
-
-
-@pytest.fixture
-def workspace(tmp_path: Path) -> Path:
-    ws = tmp_path / "agent-workspace"
-    for sub in ("input", "output", "reports", "playbooks"):
-        (ws / sub).mkdir(parents=True)
-    (ws / "AGENTS.md").write_text("# agents", encoding="utf-8")
-    return ws
 
 
 @pytest.fixture(autouse=True)
