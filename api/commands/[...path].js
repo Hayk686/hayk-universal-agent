@@ -1,10 +1,16 @@
 const { callOpenRouter, cors, json, readBody } = require("../_openrouter");
 
-const WHITELIST = new Set([
+const commands = [
   "hermes status",
   "hermes doctor",
   'hermes -z "Say exactly: OK"',
-]);
+];
+const WHITELIST = new Set(commands);
+
+function routeName(req) {
+  const pathname = new URL(req.url || "/", "https://local.invalid").pathname;
+  return pathname.replace(/^\/api\/commands\/?/, "").replace(/\/$/, "");
+}
 
 async function runCloudCommand(command) {
   if (command === "hermes status") {
@@ -41,9 +47,15 @@ module.exports = async function handler(req, res) {
     cors(res);
     return res.status(204).end();
   }
-  if (req.method !== "POST") {
-    return json(res, 405, { detail: "Method not allowed" });
+
+  const route = routeName(req);
+  if (route === "whitelist" && req.method === "GET") {
+    return json(res, 200, { commands });
   }
+  if (route !== "run" || req.method !== "POST") {
+    return json(res, 404, { detail: "Command route not found" });
+  }
+
   const command = String(readBody(req).command || "").trim();
   if (!WHITELIST.has(command)) {
     return json(res, 400, { detail: "Command is not in the whitelist" });
