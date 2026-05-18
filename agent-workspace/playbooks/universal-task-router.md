@@ -18,6 +18,7 @@ Classify the request into one primary mode:
 | Diagnostics | Agent broken, logs, health, services | Run self-diagnostics checks |
 | Executor | Safe local command or script | Confirm scope, run, verify |
 | Memory | Preferences, recurring context | Ask where to store durable notes |
+| Browser Work | Visible web page, form, category, survey/task prompt | Read visible context and propose the next answer/action |
 
 ## Routing rules
 
@@ -30,6 +31,10 @@ Classify the request into one primary mode:
    human-readable summary in `reports/`.
 5. If the task is too large, do the smallest useful slice first and report what
    remains.
+6. In Vercel cloud mode, use only the cloud tools exposed by the dashboard:
+   chat, AGENTS.md, playbooks, file listing, logs, and whitelisted diagnostics.
+7. For Clickworker-style categorization, answer only from visible page text. If
+   the object to classify is missing, say exactly what information is missing.
 
 ## Response shape
 

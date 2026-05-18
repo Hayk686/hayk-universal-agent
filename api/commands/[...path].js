@@ -26,6 +26,8 @@ async function runCloudCommand(command) {
   if (command === "hermes doctor") {
     const checks = [
       ["OPENROUTER_API_KEY", Boolean(process.env.OPENROUTER_API_KEY)],
+      ["NVIDIA_API_KEY", Boolean(process.env.NVIDIA_API_KEY)],
+      ["AGENT_LLM_PROVIDER", process.env.AGENT_LLM_PROVIDER || "openrouter"],
       ["GITHUB_TOKEN", Boolean(process.env.GITHUB_TOKEN)],
       ["GITHUB_REPO", Boolean(process.env.GITHUB_REPO)],
       ["GITHUB_BRANCH", Boolean(process.env.GITHUB_BRANCH)],
