@@ -1,4 +1,10 @@
 const DEFAULT_MODEL = "minimax/minimax-m2.5:free";
+const FALLBACK_MODELS = [
+  DEFAULT_MODEL,
+  "openrouter/free",
+  "z-ai/glm-4.5-air:free",
+  "openai/gpt-oss-20b:free",
+];
 
 function readBody(req) {
   if (!req.body) return {};
@@ -10,12 +16,16 @@ function readBody(req) {
   }
 }
 
-function freeModelFromEnv(name, fallback = DEFAULT_MODEL) {
-  const model = String(process.env[name] || fallback).trim() || fallback;
+function ensureFreeModel(model, name = "model") {
   if (process.env.AGENT_ALLOW_PAID_MODELS !== "true" && model !== "openrouter/free" && !model.endsWith(":free")) {
     throw new Error(`${name} must be a free model unless AGENT_ALLOW_PAID_MODELS=true`);
   }
   return model;
+}
+
+function freeModelFromEnv(name, fallback = DEFAULT_MODEL) {
+  const model = String(process.env[name] || fallback).trim() || fallback;
+  return ensureFreeModel(model, name);
 }
 
 function cors(res) {
@@ -44,18 +54,7 @@ function validateMessage(body) {
   return message;
 }
 
-async function callOpenRouter(message, { web = false } = {}) {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) {
-    const err = new Error("OPENROUTER_API_KEY is not set in Vercel environment variables");
-    err.statusCode = 503;
-    throw err;
-  }
-  const model = freeModelFromEnv(web ? "AGENT_WEB_MODEL" : "AGENT_WORKHORSE_MODEL");
-  const system = web
-    ? "You are a concise web-aware assistant. Answer directly in the user's language."
-    : "You are Hayk Universal Agent. Answer directly in the user's language.";
-
+async function callOneOpenRouterModel(apiKey, model, messages) {
   const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -64,13 +63,7 @@ async function callOpenRouter(message, { web = false } = {}) {
       "HTTP-Referer": process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "https://hayk-universal-agent.vercel.app",
       "X-Title": "Hayk Universal Agent",
     },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: message },
-      ],
-    }),
+    body: JSON.stringify({ model, messages }),
   });
 
   const text = await response.text();
@@ -88,10 +81,54 @@ async function callOpenRouter(message, { web = false } = {}) {
     err.model = model;
     throw err;
   }
-  return {
-    text: payload.choices?.[0]?.message?.content || "",
-    model,
-  };
+  return payload.choices?.[0]?.message?.content || "";
+}
+
+function candidateModels(primary) {
+  return [
+    primary,
+    process.env.AGENT_BACKUP_MODEL,
+    ...FALLBACK_MODELS,
+  ]
+    .filter(Boolean)
+    .map((model) => ensureFreeModel(String(model).trim()))
+    .filter((model, index, all) => model && all.indexOf(model) === index);
+}
+
+async function callOpenRouter(message, { web = false } = {}) {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
+    const err = new Error("OPENROUTER_API_KEY is not set in Vercel environment variables");
+    err.statusCode = 503;
+    throw err;
+  }
+  const model = freeModelFromEnv(web ? "AGENT_WEB_MODEL" : "AGENT_WORKHORSE_MODEL");
+  const system = web
+    ? "You are a concise web-aware assistant. Answer directly in the user's language."
+    : "You are Hayk Universal Agent. Answer directly in the user's language.";
+
+  const messages = [
+    { role: "system", content: system },
+    { role: "user", content: message },
+  ];
+
+  let lastError;
+  for (const candidate of candidateModels(model)) {
+    try {
+      return {
+        text: await callOneOpenRouterModel(apiKey, candidate, messages),
+        model: candidate,
+      };
+    } catch (error) {
+      lastError = error;
+      console.warn("OpenRouter candidate failed", {
+        message: error.message || String(error),
+        providerStatus: error.providerStatus,
+        model: candidate,
+      });
+    }
+  }
+  throw lastError || new Error("OpenRouter request failed");
 }
 
 module.exports = {
