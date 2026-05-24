@@ -1,12 +1,13 @@
 /**
- * Hayk Agent design tokens.
- * Palette:
- * #0D1B2A, #1B263B, #415A77, #778DA9, #E0E1DD
+ * Hermes Command Center design tokens.
+ * Palette: slate-navy command center (#0f172a, #1e293b, #334155, #3b82f6)
  */
 
 :root {
+  --hermes-col-left: minmax(220px, 22%);
+  --hermes-col-right: minmax(240px, 28%);
   --hayk-shell-sidebar-width: 15rem;
-  --hayk-radius: 1rem;
+  --hayk-radius: 0.75rem;
   --hayk-font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --hayk-font-mono: "JetBrains Mono", ui-monospace, "Cascadia Code", "SFMono-Regular", Menlo, monospace;
 
@@ -31,9 +32,9 @@
 .dark[data-app="hayk-dashboard-shell"],
 html.dark [data-app="hayk-dashboard-shell"] {
   background:
-    radial-gradient(ellipse 100% 70% at 50% -18%, color-mix(in oklab, #415A77 30%, transparent) 0%, transparent 55%),
-    radial-gradient(ellipse 70% 45% at 100% 0%, color-mix(in oklab, #778DA9 16%, transparent) 0%, transparent 48%),
-    linear-gradient(180deg, #0D1B2A 0%, #101f31 45%, #0B1724 100%);
+    radial-gradient(ellipse 90% 60% at 50% -20%, color-mix(in oklab, #3b82f6 12%, transparent) 0%, transparent 50%),
+    radial-gradient(ellipse 60% 40% at 100% 0%, color-mix(in oklab, #1e40af 8%, transparent) 0%, transparent 45%),
+    linear-gradient(180deg, #0f172a 0%, #0c1220 50%, #0a0f1a 100%);
 }
 
 :root {
@@ -102,35 +103,35 @@ html.dark [data-app="hayk-dashboard-shell"] {
 }
 
 html.dark {
-  --background: #0D1B2A;
-  --foreground: #E0E1DD;
+  --background: #0f172a;
+  --foreground: #e2e8f0;
 
-  --card: color-mix(in oklab, #1B263B 88%, #415A77);
-  --card-foreground: #E0E1DD;
+  --card: color-mix(in oklab, #1e293b 92%, #0f172a);
+  --card-foreground: #e2e8f0;
 
-  --popover: color-mix(in oklab, #1B263B 92%, #415A77);
-  --popover-foreground: #E0E1DD;
+  --popover: color-mix(in oklab, #1e293b 94%, #0f172a);
+  --popover-foreground: #e2e8f0;
 
-  --primary: #778DA9;
-  --primary-foreground: #0D1B2A;
+  --primary: #3b82f6;
+  --primary-foreground: #f8fafc;
 
-  --secondary: color-mix(in oklab, #1B263B 86%, #415A77);
-  --secondary-foreground: #E0E1DD;
+  --secondary: color-mix(in oklab, #334155 70%, #1e293b);
+  --secondary-foreground: #e2e8f0;
 
-  --muted: color-mix(in oklab, #1B263B 84%, #415A77);
-  --muted-foreground: #778DA9;
+  --muted: color-mix(in oklab, #1e293b 88%, #334155);
+  --muted-foreground: #94a3b8;
 
-  --accent: color-mix(in oklab, #415A77 58%, #1B263B);
-  --accent-foreground: #E0E1DD;
+  --accent: color-mix(in oklab, #334155 60%, #1e293b);
+  --accent-foreground: #e2e8f0;
 
   --destructive: #f97066;
   --destructive-foreground: #0D1B2A;
 
-  --warning: #f6c177;
-  --warning-foreground: #0D1B2A;
+  --warning: #f59e0b;
+  --warning-foreground: #0f172a;
 
-  --success: #47cd89;
-  --success-foreground: #0D1B2A;
+  --success: #22c55e;
+  --success-foreground: #0f172a;
 
   --info: #778DA9;
   --info-foreground: #0D1B2A;

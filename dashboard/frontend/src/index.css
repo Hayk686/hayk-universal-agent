@@ -181,3 +181,71 @@ body,
     padding-right: 0;
   }
 }
+
+/* Hermes 3-column command center */
+.hermes-dashboard {
+  min-height: 0;
+}
+
+.hermes-dashboard-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: 1fr;
+  grid-template-rows: auto auto 1fr;
+}
+
+@media (min-width: 1024px) {
+  .hermes-dashboard-grid {
+    grid-template-columns: var(--hermes-col-left) minmax(0, 1fr) var(--hermes-col-right);
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .hermes-panel-left,
+  .hermes-panel-center,
+  .hermes-panel-right {
+    min-height: 0;
+    max-height: 100%;
+  }
+}
+
+@media (min-width: 1280px) {
+  .hermes-dashboard-grid {
+    gap: 1rem;
+  }
+}
+
+.hermes-panel-left {
+  order: 2;
+}
+
+.hermes-panel-center {
+  order: 1;
+  min-height: min(70dvh, 720px);
+}
+
+.hermes-panel-right {
+  order: 3;
+}
+
+@media (min-width: 1024px) {
+  .hermes-panel-left {
+    order: 1;
+  }
+
+  .hermes-panel-center {
+    order: 2;
+    min-height: 0;
+  }
+
+  .hermes-panel-right {
+    order: 3;
+  }
+}
+
+.hermes-metric-card {
+  transition: border-color 0.2s ease;
+}
+
+.hermes-metric-card:hover {
+  border-color: color-mix(in oklab, var(--primary) 35%, transparent);
+}
