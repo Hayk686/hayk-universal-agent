@@ -28,9 +28,22 @@ export function useMocks(): boolean {
   return v === "true" || v === "1";
 }
 
+function ngrokHeaders(): Record<string, string> {
+  const base = apiBase().toLowerCase();
+  if (base.includes("ngrok-free.app") || base.includes("ngrok-free.dev") || base.includes(".ngrok.io")) {
+    return { "ngrok-skip-browser-warning": "1" };
+  }
+  return {};
+}
+
 export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   const p = path.startsWith("/") ? path : `/${path}`;
-  return fetch(`${apiBase()}${p}`, init);
+  const extra = ngrokHeaders();
+  const headers = new Headers(init?.headers);
+  for (const [key, value] of Object.entries(extra)) {
+    if (!headers.has(key)) headers.set(key, value);
+  }
+  return fetch(`${apiBase()}${p}`, { ...init, headers });
 }
 
 export async function getJson<T>(path: string): Promise<T> {
