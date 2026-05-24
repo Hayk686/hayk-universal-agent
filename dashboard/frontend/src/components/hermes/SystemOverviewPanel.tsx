@@ -1,7 +1,23 @@
-import type { ComponentType } from "react";
+import { lazy, Suspense, type ComponentType } from "react";
 import { BarChart3, Clock, MessageSquare, Users, TrendingDown, TrendingUp } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { RequestActivityChart, type ActivityPoint } from "./RequestActivityChart";
+import type { ActivityPoint } from "./chart-types";
+
+const RequestActivityChart = lazy(() => import("./RequestActivityChart"));
+
+function ChartSkeleton() {
+  return (
+    <div className="flex h-[180px] w-full flex-col justify-end gap-2">
+      <Skeleton className="h-[140px] w-full rounded-lg" />
+      <div className="flex justify-between gap-2 px-1">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <Skeleton key={i} className="h-2 w-8 rounded" />
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export type SystemMetrics = {
   totalMessages: number;
@@ -118,7 +134,9 @@ export function SystemOverviewPanel({
           </h3>
           <span className="text-[10px] text-muted-foreground">Last 24h</span>
         </div>
-        <RequestActivityChart data={chartData} />
+        <Suspense fallback={<ChartSkeleton />}>
+          <RequestActivityChart data={chartData} />
+        </Suspense>
       </div>
     </aside>
   );

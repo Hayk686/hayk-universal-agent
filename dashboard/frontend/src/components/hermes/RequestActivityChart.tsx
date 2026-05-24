@@ -9,13 +9,9 @@ import {
   YAxis,
 } from "recharts";
 
-export type ActivityPoint = {
-  time: string;
-  requests: number;
-  errors: number;
-};
+import type { ActivityPoint } from "./chart-types";
 
-export function RequestActivityChart({ data }: { data: ActivityPoint[] }) {
+export default function RequestActivityChart({ data }: { data: ActivityPoint[] }) {
   return (
     <div className="h-[180px] w-full">
       <ResponsiveContainer width="100%" height="100%">
