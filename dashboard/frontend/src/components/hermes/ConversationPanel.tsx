@@ -1,4 +1,4 @@
-import { type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   BarChart3,
   Bot,
@@ -12,10 +12,94 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { ChatEngine, ConversationCategory } from "@/hooks/useChatEngine";
+import type { ChatEngine, ChatMode, ConversationCategory } from "@/hooks/useChatEngine";
 
 const URL_RE = /(?:https?:\/\/|www\.)[^\s<>"']+/gi;
 const TRAILING_URL_PUNCTUATION_RE = /[),.;:!?]+$/;
+
+function HermesSelect<T extends string>({
+  value,
+  onChange,
+  options,
+  disabled,
+  mono,
+  className,
+}: {
+  value: T;
+  onChange: (value: T) => void;
+  options: { value: T; label: string }[];
+  disabled?: boolean;
+  mono?: boolean;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const current = options.find((o) => o.value === value)?.label ?? value;
+
+  useEffect(() => {
+    if (!open) return;
+    function onPointerDown(e: MouseEvent) {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <div ref={rootRef} className={cn("relative", className)}>
+      <button
+        type="button"
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          "flex max-w-full items-center gap-1 rounded-md px-1 py-0.5 text-left transition hover:text-foreground disabled:opacity-50",
+          mono ? "font-mono text-[10px] text-foreground" : "text-[10px] text-foreground",
+        )}
+      >
+        <span className="truncate">{current}</span>
+        <ChevronDown className={cn("h-3 w-3 shrink-0 text-muted-foreground transition", open && "rotate-180")} />
+      </button>
+
+      {open && (
+        <div
+          role="listbox"
+          className="absolute bottom-full left-0 z-50 mb-1 min-w-[10rem] overflow-hidden rounded-lg border border-border/60 bg-popover py-1 shadow-lg"
+        >
+          {options.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              role="option"
+              aria-selected={opt.value === value}
+              onClick={() => {
+                onChange(opt.value);
+                setOpen(false);
+              }}
+              className={cn(
+                "block w-full px-3 py-1.5 text-left text-xs transition",
+                mono && "font-mono text-[10px]",
+                opt.value === value
+                  ? "bg-primary/15 font-medium text-primary"
+                  : "text-popover-foreground hover:bg-accent hover:text-accent-foreground",
+              )}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function LinkifiedText({ text }: { text: string }) {
   const nodes: ReactNode[] = [];
@@ -53,6 +137,12 @@ const CATEGORIES: { id: ConversationCategory; label: string; icon: React.Compone
   { id: "general", label: "General Chat", icon: MessageSquare },
   { id: "marketing", label: "Marketing Copy", icon: Megaphone },
   { id: "analysis", label: "Data Analysis", icon: BarChart3 },
+];
+
+const CHAT_MODE_OPTIONS: { value: ChatMode; label: string }[] = [
+  { value: "fast", label: "HERMES / HAYK-8B-Q4" },
+  { value: "session", label: "HERMES / SESSION" },
+  { value: "web", label: "HERMES / WEB" },
 ];
 
 const DEMO_MESSAGES: Record<ConversationCategory, { user: string; assistant: string }> = {
@@ -234,36 +324,25 @@ export function ConversationPanel({ chat }: { chat: ChatEngine }) {
           <div className="border-t border-border/40 p-3">
             <div className="rounded-xl border border-border/50 bg-background/40 p-2">
               <div className="mb-2 flex flex-wrap items-center gap-2">
-                <label className="flex items-center gap-1.5 rounded-lg border border-border/40 bg-card/50 px-2 py-1 text-[10px] text-muted-foreground">
-                  <span>Conversation</span>
-                  <ChevronDown className="h-3 w-3" />
-                  <select
-                    className="max-w-[100px] border-0 bg-transparent text-foreground focus:outline-none"
+                <div className="flex items-center gap-1.5 rounded-lg border border-border/40 bg-card/50 px-2 py-1">
+                  <span className="text-[10px] text-muted-foreground">Conversation</span>
+                  <HermesSelect
                     value={category}
-                    onChange={(e) => setCategory(e.target.value as ConversationCategory)}
-                  >
-                    {CATEGORIES.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                    onChange={setCategory}
+                    options={CATEGORIES.map((c) => ({ value: c.id, label: c.label }))}
+                  />
+                </div>
 
-                <label className="flex items-center gap-1.5 rounded-lg border border-border/40 bg-card/50 px-2 py-1 text-[10px] text-muted-foreground">
-                  <span className="hidden sm:inline">Provider / Model</span>
-                  <select
-                    className="border-0 bg-transparent font-mono text-[10px] text-foreground focus:outline-none"
+                <div className="flex items-center gap-1.5 rounded-lg border border-border/40 bg-card/50 px-2 py-1">
+                  <span className="hidden text-[10px] text-muted-foreground sm:inline">Provider / Model</span>
+                  <HermesSelect
                     value={chatMode}
-                    onChange={(e) => setChatMode(e.target.value as typeof chatMode)}
+                    onChange={setChatMode}
+                    options={CHAT_MODE_OPTIONS}
                     disabled={loading}
-                  >
-                    <option value="fast">HERMES / HAYK-8B-Q4</option>
-                    <option value="session">HERMES / SESSION</option>
-                    <option value="web">HERMES / WEB</option>
-                  </select>
-                  <ChevronDown className="h-3 w-3" />
-                </label>
+                    mono
+                  />
+                </div>
               </div>
 
               <textarea
