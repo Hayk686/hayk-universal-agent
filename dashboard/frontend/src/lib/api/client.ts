@@ -1,3 +1,5 @@
+import { formatKernelApiError } from "../kernel-backend";
+
 /**
  * Low-level HTTP helpers — API origin resolution:
  * 1) VITE_API_BASE_URL
@@ -68,17 +70,22 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
 export async function getJson<T>(path: string): Promise<T> {
   const res = await apiFetch(path);
   const text = await res.text();
-  if (!res.ok) throw new Error(text);
+  if (!res.ok) {
+    throw new Error(formatKernelApiError(text || `HTTP ${res.status}`, path));
+  }
   try {
     return JSON.parse(text) as T;
   } catch {
     const preview = text.trim().slice(0, 120);
     if (preview.startsWith("<")) {
       throw new Error(
-        "API returned HTML instead of JSON. Set VITE_API_BASE_URL to the FastAPI backend, or set VITE_USE_MOCKS=true for a frontend-only Vercel preview.",
+        formatKernelApiError(
+          "API returned HTML instead of JSON. Set VITE_API_BASE_URL to the FastAPI backend, or set VITE_USE_MOCKS=true for a frontend-only Vercel preview.",
+          path,
+        ),
       );
     }
-    throw new Error(`API returned invalid JSON: ${preview || "(empty response)"}`);
+    throw new Error(formatKernelApiError(`API returned invalid JSON: ${preview || "(empty response)"}`, path));
   }
 }
 

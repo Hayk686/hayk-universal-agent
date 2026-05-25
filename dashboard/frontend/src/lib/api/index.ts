@@ -46,6 +46,7 @@ import {
   PolicyConfirmationRequiredError,
   extractPolicyChallengeFromText,
 } from "../policy/errors";
+import { formatKernelApiError } from "../kernel-backend";
 import * as client from "./client";
 import * as mocks from "./mocks";
 
@@ -68,9 +69,9 @@ export async function parseJsonOrThrow<T>(res: Response): Promise<T> {
       /* fall through to raw text */
     }
     if (typeof detail === "string") {
-      throw new Error(detail);
+      throw new Error(formatKernelApiError(detail));
     }
-    throw new Error(text);
+    throw new Error(formatKernelApiError(text || `HTTP ${res.status}`));
   }
   try {
     return JSON.parse(text) as T;

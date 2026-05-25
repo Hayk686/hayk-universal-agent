@@ -9,6 +9,8 @@ import { TasksPanel } from "@/components/workspace/TasksPanel";
 import { ResearchPanel } from "@/components/workspace/ResearchPanel";
 import { BrowserLogPanel } from "@/components/workspace/BrowserLogPanel";
 import { WorkflowsPanel } from "@/components/workspace/WorkflowsPanel";
+import { WorkspaceBackendGate } from "@/components/workspace/WorkspaceBackendGate";
+import { useKernelBackend } from "@/hooks/useKernelBackend";
 
 const TABS = [
   { id: "memory", label: "Memory", icon: Brain },
@@ -22,6 +24,7 @@ type TabId = (typeof TABS)[number]["id"];
 
 export function WorkspacePage() {
   const [tab, setTab] = useState<TabId>("memory");
+  const kernel = useKernelBackend();
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background" data-workspace-page>
@@ -69,11 +72,26 @@ export function WorkspacePage() {
         </nav>
 
         <div className="min-h-0 flex-1 overflow-hidden">
-          {tab === "memory" ? <MemoryArtifactsPanel /> : null}
-          {tab === "tasks" ? <TasksPanel /> : null}
-          {tab === "research" ? <ResearchPanel /> : null}
-          {tab === "browser" ? <BrowserLogPanel /> : null}
-          {tab === "workflows" ? <WorkflowsPanel /> : null}
+          {kernel.loading ? (
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              Checking backend…
+            </div>
+          ) : !kernel.available ? (
+            <WorkspaceBackendGate
+              mode={kernel.mode}
+              capabilitiesError={kernel.error}
+              onRetry={() => void kernel.reload()}
+              loading={kernel.loading}
+            />
+          ) : (
+            <>
+              {tab === "memory" ? <MemoryArtifactsPanel /> : null}
+              {tab === "tasks" ? <TasksPanel /> : null}
+              {tab === "research" ? <ResearchPanel /> : null}
+              {tab === "browser" ? <BrowserLogPanel /> : null}
+              {tab === "workflows" ? <WorkflowsPanel /> : null}
+            </>
+          )}
         </div>
       </div>
     </div>
