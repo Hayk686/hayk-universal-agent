@@ -7,8 +7,8 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ["system-ui", "Segoe UI", "Roboto", "sans-serif"],
-        mono: ["ui-monospace", "Cascadia Code", "monospace"],
+        sans: ["Inter", "system-ui", "Segoe UI", "Roboto", "sans-serif"],
+        mono: ["JetBrains Mono", "ui-monospace", "Cascadia Code", "monospace"],
       },
       colors: {
         border: "var(--border)",

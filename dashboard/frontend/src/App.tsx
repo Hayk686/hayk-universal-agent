@@ -7,6 +7,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 const HermesDashboardPage = lazy(() =>
   import("./pages/HermesDashboardPage").then((m) => ({ default: m.HermesDashboardPage })),
 );
+const ChatPage = lazy(() =>
+  import("./pages/ChatPage").then((m) => ({ default: m.ChatPage })),
+);
 import { FilesPage } from "./pages/FilesPage";
 import { AgentsMdPage } from "./pages/AgentsMdPage";
 import { PlaybooksPage } from "./pages/PlaybooksPage";
@@ -17,12 +20,14 @@ import { SettingsPage } from "./pages/SettingsPage";
 
 function DashboardShellSkeleton() {
   return (
-    <div className="flex h-[100dvh] flex-col gap-3 bg-background p-4">
-      <Skeleton className="h-14 w-full rounded-xl" />
-      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[22%_1fr_28%]">
-        <Skeleton className="hidden rounded-xl lg:block" />
-        <Skeleton className="rounded-xl" />
-        <Skeleton className="hidden rounded-xl lg:block" />
+    <div className="flex h-[100dvh] flex-col bg-[var(--chat-bg)]">
+      <div className="flex min-h-0 flex-1">
+        <div className="hidden w-[17.5rem] shrink-0 border-r border-[var(--chat-sidebar-border)] bg-[var(--chat-sidebar-bg)] lg:block" />
+        <div className="flex min-w-0 flex-1 flex-col gap-4 p-6">
+          <Skeleton className="mx-auto h-8 w-48 rounded-lg bg-[var(--chat-composer-border)]/40" />
+          <Skeleton className="mx-auto h-32 w-full max-w-2xl rounded-2xl bg-[var(--chat-composer-border)]/30" />
+          <Skeleton className="mx-auto mt-auto h-24 w-full max-w-2xl rounded-[1.35rem] bg-[var(--chat-composer-border)]/35" />
+        </div>
       </div>
     </div>
   );
@@ -46,7 +51,7 @@ export default function App() {
               path="/chat"
               element={
                 <Suspense fallback={<DashboardShellSkeleton />}>
-                  <HermesDashboardPage />
+                  <ChatPage />
                 </Suspense>
               }
             />

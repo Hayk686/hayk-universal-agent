@@ -25,42 +25,78 @@
 [data-app="hayk-dashboard-shell"] {
   font-family: var(--hayk-font-sans);
   background:
-    radial-gradient(circle at 20% 0%, color-mix(in oklab, #778DA9 18%, transparent) 0%, transparent 30%),
-    radial-gradient(circle at 90% 10%, color-mix(in oklab, #415A77 10%, transparent) 0%, transparent 28%),
-    linear-gradient(180deg, #f7f8f6 0%, #eef1f2 44%, #E0E1DD 100%);
+    radial-gradient(circle at 18% -5%, color-mix(in oklab, #d4cfc3 28%, transparent) 0%, transparent 34%),
+    radial-gradient(circle at 92% 8%, color-mix(in oklab, #c9c2b4 16%, transparent) 0%, transparent 30%),
+    linear-gradient(180deg, #f7f6f2 0%, #f4f3ee 48%, #eceae4 100%);
 }
 
 .dark[data-app="hayk-dashboard-shell"],
 html.dark [data-app="hayk-dashboard-shell"] {
   background:
-    radial-gradient(ellipse 90% 60% at 50% -20%, color-mix(in oklab, #3b82f6 12%, transparent) 0%, transparent 50%),
-    radial-gradient(ellipse 60% 40% at 100% 0%, color-mix(in oklab, #1e40af 8%, transparent) 0%, transparent 45%),
-    linear-gradient(180deg, #0f172a 0%, #0c1220 50%, #0a0f1a 100%);
+    radial-gradient(ellipse 80% 50% at 50% -15%, color-mix(in oklab, #d4a574 8%, transparent) 0%, transparent 52%),
+    radial-gradient(ellipse 55% 35% at 100% 0%, color-mix(in oklab, #8b5a2b 6%, transparent) 0%, transparent 48%),
+    linear-gradient(180deg, #2b2a28 0%, #262624 52%, #21211f 100%);
 }
 
 :root {
   --radius: 0.875rem;
 
-  --background: #f7f8f6;
-  --foreground: #0D1B2A;
+  /* Claude-inspired chat surface tokens (light) */
+  --chat-bg: #f4f3ee;
+  --chat-text: #1f1e1b;
+  --chat-label: #3d3c38;
+  --chat-meta-fg: #6f6d66;
+  --chat-meta-bg: #ebeae4;
+  --chat-link: #8b5a2b;
+  --chat-placeholder: #9a9890;
+  --chat-hover: rgba(31, 30, 27, 0.05);
+  --chat-user-bg: #ebeae4;
+  --chat-user-avatar-bg: #e2e0d8;
+  --chat-user-avatar-fg: #5c5a54;
+  --chat-assistant-avatar-bg: #e8e4dc;
+  --chat-assistant-avatar-fg: #8b5a2b;
+  --chat-composer-bg: #faf9f6;
+  --chat-composer-border: #ddd9cf;
+  --chat-composer-shadow: 0 8px 28px -18px rgb(31 30 27 / 0.18);
+  --chat-mode-active-bg: #ebeae4;
+  --chat-mode-active-fg: #1f1e1b;
+  --chat-send-bg: #1f1e1b;
+  --chat-send-fg: #faf9f6;
+  --chat-send-disabled-bg: #e2e0d8;
+  --chat-send-disabled-fg: #9a9890;
+  --chat-sidebar-bg: #eceae4;
+  --chat-sidebar-fg: #1f1e1b;
+  --chat-sidebar-muted: #6f6d66;
+  --chat-sidebar-border: #ddd9cf;
+  --chat-sidebar-item-bg: #f4f3ee;
+  --chat-sidebar-active: rgba(31, 30, 27, 0.06);
+  --chat-destructive-bg: #fdf0ee;
+  --chat-destructive-fg: #b42318;
+  --chat-destructive-border: #f5c4bc;
+  --chat-warning-bg: #fdf8ec;
+  --chat-warning-fg: #9a6700;
+  --chat-warning-border: #f0dfa8;
 
-  --card: color-mix(in oklab, white 82%, #E0E1DD);
-  --card-foreground: #0D1B2A;
+  --background: #f4f3ee;
+  --foreground: #1f1e1b;
 
-  --popover: color-mix(in oklab, white 88%, #E0E1DD);
-  --popover-foreground: #0D1B2A;
+  --card: color-mix(in oklab, white 78%, #ebeae4);
+  --card-foreground: #1f1e1b;
 
-  --primary: #415A77;
-  --primary-foreground: #ffffff;
+  --popover: color-mix(in oklab, white 84%, #ebeae4);
+  --popover-foreground: #1f1e1b;
 
-  --secondary: color-mix(in oklab, #E0E1DD 72%, white);
-  --secondary-foreground: #1B263B;
+  --primary: #8b5a2b;
+  --primary-foreground: #faf9f6;
 
-  --muted: color-mix(in oklab, #E0E1DD 72%, white);
-  --muted-foreground: #415A77;
+  --secondary: color-mix(in oklab, #ebeae4 72%, white);
+  --secondary-foreground: #3d3c38;
 
-  --accent: color-mix(in oklab, #778DA9 22%, white);
-  --accent-foreground: #0D1B2A;
+  --muted: color-mix(in oklab, #ebeae4 72%, white);
+  --muted-foreground: #6f6d66;
+
+  --accent: color-mix(in oklab, #d4cfc3 28%, white);
+  --accent-foreground: #1f1e1b;
 
   --destructive: #b42318;
   --destructive-foreground: #ffffff;
@@ -74,9 +110,9 @@ html.dark [data-app="hayk-dashboard-shell"] {
   --info: #415A77;
   --info-foreground: #ffffff;
 
-  --border: color-mix(in oklab, #778DA9 34%, transparent);
-  --input: color-mix(in oklab, #778DA9 34%, transparent);
-  --ring: #415A77;
+  --border: color-mix(in oklab, #6f6d66 22%, transparent);
+  --input: color-mix(in oklab, #6f6d66 22%, transparent);
+  --ring: #8b5a2b;
 
   --sidebar: color-mix(in oklab, white 82%, #E0E1DD);
   --sidebar-foreground: #0D1B2A;
@@ -104,26 +140,62 @@ html.dark [data-app="hayk-dashboard-shell"] {
 }
 
 html.dark {
-  --background: #0f172a;
-  --foreground: #e2e8f0;
+  /* Claude-inspired chat surface tokens (dark) */
+  --chat-bg: #262624;
+  --chat-text: #ececec;
+  --chat-label: #d4d4d4;
+  --chat-meta-fg: #9b9b9b;
+  --chat-meta-bg: #333331;
+  --chat-link: #d4a574;
+  --chat-placeholder: #7a7a78;
+  --chat-hover: rgba(255, 255, 255, 0.06);
+  --chat-user-bg: #333331;
+  --chat-user-avatar-bg: #3d3d3b;
+  --chat-user-avatar-fg: #b8b8b6;
+  --chat-assistant-avatar-bg: #3a3832;
+  --chat-assistant-avatar-fg: #d4a574;
+  --chat-composer-bg: #30302e;
+  --chat-composer-border: #444442;
+  --chat-composer-shadow: 0 10px 32px -20px rgb(0 0 0 / 0.55);
+  --chat-mode-active-bg: #3d3d3b;
+  --chat-mode-active-fg: #ececec;
+  --chat-send-bg: #ececec;
+  --chat-send-fg: #262624;
+  --chat-send-disabled-bg: #3d3d3b;
+  --chat-send-disabled-fg: #7a7a78;
+  --chat-sidebar-bg: #21211f;
+  --chat-sidebar-fg: #ececec;
+  --chat-sidebar-muted: #9b9b9b;
+  --chat-sidebar-border: #3a3a38;
+  --chat-sidebar-item-bg: #2a2a28;
+  --chat-sidebar-active: rgba(255, 255, 255, 0.07);
+  --chat-destructive-bg: rgba(249, 112, 102, 0.12);
+  --chat-destructive-fg: #f97066;
+  --chat-destructive-border: rgba(249, 112, 102, 0.28);
+  --chat-warning-bg: rgba(245, 158, 11, 0.12);
+  --chat-warning-fg: #fbbf24;
+  --chat-warning-border: rgba(245, 158, 11, 0.28);
 
-  --card: color-mix(in oklab, #1e293b 92%, #0f172a);
-  --card-foreground: #e2e8f0;
+  --background: #262624;
+  --foreground: #ececec;
 
-  --popover: color-mix(in oklab, #1e293b 94%, #0f172a);
-  --popover-foreground: #e2e8f0;
+  --card: color-mix(in oklab, #30302e 92%, #262624);
+  --card-foreground: #ececec;
 
-  --primary: #3b82f6;
-  --primary-foreground: #f8fafc;
+  --popover: color-mix(in oklab, #333331 94%, #262624);
+  --popover-foreground: #ececec;
 
-  --secondary: color-mix(in oklab, #334155 70%, #1e293b);
-  --secondary-foreground: #e2e8f0;
+  --primary: #d4a574;
+  --primary-foreground: #262624;
 
-  --muted: color-mix(in oklab, #1e293b 88%, #334155);
-  --muted-foreground: #94a3b8;
+  --secondary: color-mix(in oklab, #3d3d3b 70%, #30302e);
+  --secondary-foreground: #ececec;
 
-  --accent: color-mix(in oklab, #334155 60%, #1e293b);
-  --accent-foreground: #e2e8f0;
+  --muted: color-mix(in oklab, #333331 88%, #3d3d3b);
+  --muted-foreground: #9b9b9b;
+
+  --accent: color-mix(in oklab, #3d3d3b 60%, #333331);
+  --accent-foreground: #ececec;
 
   --destructive: #f97066;
   --destructive-foreground: #0D1B2A;
@@ -137,9 +209,9 @@ html.dark {
   --info: #778DA9;
   --info-foreground: #0D1B2A;
 
-  --border: color-mix(in oklab, #E0E1DD 12%, transparent);
-  --input: color-mix(in oklab, #E0E1DD 14%, transparent);
-  --ring: #778DA9;
+  --border: color-mix(in oklab, white 10%, transparent);
+  --input: color-mix(in oklab, white 12%, transparent);
+  --ring: #d4a574;
 
   --sidebar: color-mix(in oklab, #0D1B2A 78%, #1B263B);
   --sidebar-foreground: #E0E1DD;
