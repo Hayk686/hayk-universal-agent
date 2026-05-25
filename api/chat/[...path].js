@@ -54,6 +54,12 @@ async function send(req, res, { web = false } = {}) {
   });
 }
 
+function cloudSessionId(body) {
+  return typeof body.sessionId === "string" && body.sessionId.trim()
+    ? body.sessionId.trim()
+    : `vercel-${Date.now()}`;
+}
+
 async function sessionSend(req, res) {
   const body = readBody(req);
   const message = validateMessage(body);
@@ -68,15 +74,38 @@ async function sessionSend(req, res) {
 
   const started = Date.now();
   const result = await callOpenRouter(message);
-  const sessionId = typeof body.sessionId === "string" && body.sessionId.trim()
-    ? body.sessionId.trim()
-    : `vercel-${Date.now()}`;
   return json(res, 200, {
     response: `${result.text.trim()}\n`,
-    sessionId,
+    sessionId: cloudSessionId(body),
     exitCode: 0,
     durationMs: Date.now() - started,
     mode: "hermes-session",
+    parseWarning: "Cloud session is stateless on Vercel; local browser history keeps the visible chat.",
+  });
+}
+
+async function webSessionSend(req, res) {
+  const body = readBody(req);
+  const message = validateMessage(body);
+  const endpoint = "/api/chat/web-send";
+  const gate = enforcePolicy({
+    req,
+    res,
+    json,
+    action: "network web-send",
+    context: { endpoint, kind: "network" },
+    confirmationToken: policyToken(body),
+  });
+  if (!gate.allowed) return;
+
+  const started = Date.now();
+  const result = await callOpenRouter(message, { web: true });
+  return json(res, 200, {
+    response: `${result.text.trim()}\n`,
+    sessionId: cloudSessionId(body),
+    exitCode: 0,
+    durationMs: Date.now() - started,
+    mode: "web-session",
     parseWarning: "Cloud session is stateless on Vercel; local browser history keeps the visible chat.",
   });
 }
@@ -105,7 +134,7 @@ module.exports = async function handler(req, res) {
       return await send(req, res);
     }
     if (route === "web-send" && req.method === "POST") {
-      return await send(req, res, { web: true });
+      return await webSessionSend(req, res);
     }
     if (route === "session-send" && req.method === "POST") {
       return await sessionSend(req, res);

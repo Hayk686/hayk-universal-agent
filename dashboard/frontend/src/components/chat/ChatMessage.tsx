@@ -1,4 +1,5 @@
 import { Bot, User } from "lucide-react";
+import { formatTurnModeBadge } from "@/lib/chat-thread";
 import { cn } from "@/lib/utils";
 import { LinkifiedText } from "./LinkifiedText";
 
@@ -13,6 +14,7 @@ export type ChatMessageProps = {
 
 export function ChatMessage({ role, text, mode, exitCode, durationMs, compact }: ChatMessageProps) {
   const isUser = role === "user";
+  const modeBadge = formatTurnModeBadge(mode);
 
   return (
     <article
@@ -44,9 +46,9 @@ export function ChatMessage({ role, text, mode, exitCode, durationMs, compact }:
             <span className="text-[13px] font-medium text-[var(--chat-label)]">
               {isUser ? "You" : "Hayk"}
             </span>
-            {!isUser && mode && (
-              <span className="rounded-md bg-[var(--chat-meta-bg)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--chat-meta-fg)]">
-                {mode}
+            {modeBadge && (
+              <span className="rounded-md bg-[var(--chat-meta-bg)] px-1.5 py-0.5 text-[10px] text-[var(--chat-meta-fg)]">
+                {modeBadge}
               </span>
             )}
           </div>

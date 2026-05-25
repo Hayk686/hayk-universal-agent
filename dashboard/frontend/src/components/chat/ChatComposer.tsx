@@ -1,7 +1,8 @@
 import { ArrowUp, Loader2, Search, XCircle, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { ChatMode } from "@/hooks/useChatEngine";
+import type { ChatMode } from "@/lib/chat-types";
+import { modeLabel } from "@/lib/chat-thread";
 
 export type ChatComposerProps = {
   input: string;
@@ -115,7 +116,9 @@ export function ChatComposer({
         </div>
 
         <p className="mt-2 text-center text-[11px] text-[var(--chat-meta-fg)]">
-          Hayk can make mistakes. Verify important information.
+          Next message: <span className="text-[var(--chat-text)]">{modeLabel(chatMode)}</span>
+          {" · "}
+          same thread — switch mode anytime
         </p>
       </div>
     </div>

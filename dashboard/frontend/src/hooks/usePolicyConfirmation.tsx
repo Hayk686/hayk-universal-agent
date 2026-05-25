@@ -7,6 +7,11 @@ import {
   extractPolicyChallengeFromError,
   type PolicyChallenge,
 } from "@/lib/policy/errors";
+import {
+  clearCachedPolicyToken,
+  getCachedPolicyToken,
+  setCachedPolicyToken,
+} from "@/lib/policy/token-cache";
 
 type PendingRequest<T> = {
   execute: (confirmationToken?: string) => Promise<T>;
@@ -38,7 +43,25 @@ export function usePolicyConfirmation() {
   }, []);
 
   const requestWithConfirmation = useCallback(
-    async <T,>(execute: (confirmationToken?: string) => Promise<T>): Promise<T> => {
+    async <T,>(
+      execute: (confirmationToken?: string) => Promise<T>,
+      options?: { policyAction?: string },
+    ): Promise<T> => {
+      const policyAction = options?.policyAction?.trim();
+
+      if (policyAction) {
+        const cached = getCachedPolicyToken(policyAction);
+        if (cached) {
+          try {
+            return await execute(cached);
+          } catch (error) {
+            const challenge = extractPolicyChallengeFromError(error);
+            if (!challenge) throw error;
+            clearCachedPolicyToken(policyAction);
+          }
+        }
+      }
+
       try {
         return await execute();
       } catch (error) {
@@ -68,6 +91,7 @@ export function usePolicyConfirmation() {
     try {
       const token = await resolveConfirmationToken(current.challenge);
       await api.confirmPolicy(current.challenge.action, token);
+      setCachedPolicyToken(current.challenge.action, token);
       const result = await current.execute(token);
       current.resolve(result);
       clearPending();

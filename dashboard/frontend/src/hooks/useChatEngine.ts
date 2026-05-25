@@ -4,7 +4,8 @@ import {
   PolicyConfirmationCancelledError,
   usePolicyConfirmation,
 } from "@/hooks/usePolicyConfirmation";
-import type { ChatSendResponse, ChatSessionSendResponse, ChatWebSendResponse, StatusResponse } from "@/types/api-contract";
+import { buildMessageWithThreadContext, POLICY_ACTION_WEB_SEND } from "@/lib/chat-thread";
+import type { ChatSessionSendResponse, ChatWebSendResponse, StatusResponse } from "@/types/api-contract";
 
 const LS_SESSION = "hayk-agent-chat-session-id";
 const LS_HISTORY = "hayk-agent-chat-history-v1";
@@ -15,19 +16,8 @@ const CHAT_CLIENT_ABORT_BUFFER_MS = 15_000;
 export const TIMEOUT_HELP =
   "Hermes timed out. Try a shorter prompt, switch model/provider, or increase CHAT_TIMEOUT_SECONDS.";
 
-export type ChatMode = "fast" | "web" | "session";
-
-export type TurnMode = "hermes-session" | "oneshot" | "web-oneshot";
-
-export type HistoryMsg = {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  exitCode?: number;
-  durationMs?: number;
-  mode?: TurnMode;
-  timestamp?: number;
-};
+export type { ChatMode, HistoryMsg, TurnMode } from "@/lib/chat-types";
+import type { ChatMode, HistoryMsg, TurnMode } from "@/lib/chat-types";
 
 const PROGRESS_LINES_BASE = [
   "Starting Hermes…",
@@ -265,28 +255,44 @@ export function useChatEngine() {
     void loadRecentSessions();
   }, []);
 
-  function applySessionResult(data: ChatSessionSendResponse) {
+  function applySessionResult(data: {
+    sessionId?: string | null;
+    parseWarning?: string | null;
+  }) {
     setParseWarning(typeof data.parseWarning === "string" ? data.parseWarning : null);
     setSessionId((prev) => data.sessionId ?? prev);
   }
 
-  function appendExchange(userText: string, data: ChatSessionSendResponse | ChatSendResponse | ChatWebSendResponse) {
-    const mode: TurnMode =
-      data.mode === "oneshot" ? "oneshot" : data.mode === "web-oneshot" ? "web-oneshot" : "hermes-session";
+  function assistantTurnMode(
+    data: ChatSessionSendResponse | ChatWebSendResponse,
+    sendMode: ChatMode,
+  ): TurnMode {
+    if (data.mode === "web-session") return "web-session";
+    if (sendMode === "fast") return "fast";
+    if (sendMode === "session") return "session";
+    return "hermes-session";
+  }
+
+  function appendExchange(
+    userText: string,
+    data: ChatSessionSendResponse | ChatWebSendResponse,
+    sendMode: ChatMode,
+  ) {
+    const assistantMode = assistantTurnMode(data, sendMode);
     const ts = Date.now();
     const isError = data.exitCode !== 0;
     bumpActivity(isError);
     setActivityBuckets(readActivity());
     setHistory((h) => [
       ...h,
-      { id: uid(), role: "user", content: userText, timestamp: ts },
+      { id: uid(), role: "user", content: userText, timestamp: ts, mode: sendMode },
       {
         id: uid(),
         role: "assistant",
         content: data.response,
         exitCode: data.exitCode,
         durationMs: data.durationMs,
-        mode,
+        mode: assistantMode,
         timestamp: ts,
       },
     ]);
@@ -312,26 +318,25 @@ export function useChatEngine() {
     setSessionTimeoutHint(null);
     setLoading(true);
     const sid = sessionId;
+    const historyBeforeSend = history;
     try {
-      let data: ChatSendResponse | ChatSessionSendResponse | ChatWebSendResponse;
+      let data: ChatSessionSendResponse | ChatWebSendResponse;
       const requestInit = { signal: ac.signal };
-      if (modeNow === "fast") {
-        data = await requestWithConfirmation((token) =>
-          api.sendChatMessage(message, {
-            ...requestInit,
-            policyConfirmationToken: token,
-          }),
+      if (modeNow === "web") {
+        const payload =
+          sid || historyBeforeSend.length === 0
+            ? message
+            : buildMessageWithThreadContext(message, historyBeforeSend);
+        data = await requestWithConfirmation(
+          (token) =>
+            api.sendWebChatMessage(payload, sid, {
+              ...requestInit,
+              policyConfirmationToken: token,
+            }),
+          { policyAction: POLICY_ACTION_WEB_SEND },
         );
-        appendExchange(message, data);
-        setInput("");
-      } else if (modeNow === "web") {
-        data = await requestWithConfirmation((token) =>
-          api.sendWebChatMessage(message, {
-            ...requestInit,
-            policyConfirmationToken: token,
-          }),
-        );
-        appendExchange(message, data);
+        applySessionResult(data);
+        appendExchange(message, data, "web");
         setInput("");
       } else {
         data = await requestWithConfirmation((token) =>
@@ -341,7 +346,7 @@ export function useChatEngine() {
           }),
         );
         applySessionResult(data);
-        appendExchange(message, data);
+        appendExchange(message, data, modeNow);
         setInput("");
       }
       if (data.exitCode === 124) {

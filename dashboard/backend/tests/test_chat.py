@@ -244,6 +244,58 @@ def test_chat_session_resume_includes_resume_argv(workspace, monkeypatch) -> Non
     )
 
 
+def test_chat_web_session_resume_includes_web_tools(workspace, monkeypatch) -> None:
+    monkeypatch.delenv("HERMES_BIN", raising=False)
+    monkeypatch.setenv("POLICY_CONFIRM_SECRET", "test-secret")
+    from app.policy.confirmation import issue_confirmation_token
+
+    token = issue_confirmation_token("network web-send")
+    captured: dict = {}
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        captured["args"] = args
+        proc = MagicMock()
+        proc.communicate = AsyncMock(
+            return_value=(b"web ok\n\nsession_id: sid_web\n", None),
+        )
+        proc.returncode = 0
+        proc.kill = MagicMock()
+        return proc
+
+    monkeypatch.setattr(
+        api_module.asyncio,
+        "create_subprocess_exec",
+        fake_create_subprocess_exec,
+    )
+    client = _client_for_workspace(workspace)
+    sid = "20260504_152607_6384ed"
+    r = client.post(
+        "/api/chat/web-send",
+        json={
+            "message": "search online",
+            "sessionId": sid,
+            "policyConfirmationToken": token,
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["mode"] == "web-session"
+    assert body["sessionId"] == "sid_web"
+    assert captured["args"] == (
+        "hermes",
+        "chat",
+        "-q",
+        "search online",
+        "-Q",
+        "--resume",
+        sid,
+        "--source",
+        "tool",
+        "-t",
+        "terminal,file,memory,web",
+    )
+
+
 def test_chat_session_rejects_unsafe_session_id(workspace, monkeypatch) -> None:
     async def _no_exec(*_a, **_kw):
         raise AssertionError("subprocess should not run")

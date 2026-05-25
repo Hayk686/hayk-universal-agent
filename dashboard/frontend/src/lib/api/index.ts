@@ -433,10 +433,18 @@ export const api = {
       () => mocks.mockChatSend(message),
     ),
 
-  sendWebChatMessage: (message: string, init?: ApiRequestInit) =>
+  sendWebChatMessage: (
+    message: string,
+    sessionId: string | null,
+    init?: ApiRequestInit,
+  ) =>
     gate(
       async () => {
-        const body: { message: string; policyConfirmationToken?: string } = { message };
+        const body: {
+          message: string;
+          sessionId: string | null;
+          policyConfirmationToken?: string;
+        } = { message, sessionId: sessionId ?? null };
         if (init?.policyConfirmationToken) {
           body.policyConfirmationToken = init.policyConfirmationToken;
         }
@@ -444,8 +452,8 @@ export const api = {
         return parseJsonOrThrow<ChatWebSendResponse>(res);
       },
       async () => {
-        const data = await mocks.mockChatSend(message);
-        return { ...data, mode: "web-oneshot" as const };
+        const data = await mocks.mockChatSessionSend(message, sessionId);
+        return { ...data, mode: "web-session" as const };
       },
     ),
 

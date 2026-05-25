@@ -1411,7 +1411,19 @@ def _parse_hermes_session_chat_stdout(raw: str) -> tuple[str, str | None, str | 
     return text, extracted, warning
 
 
-def _hermes_session_chat_argv(message: str, resume_id: str | None) -> list[str]:
+_HERMES_SESSION_TOOLS = "terminal,file,memory"
+_HERMES_SESSION_WEB_TOOLS = (
+    os.environ.get("HERMES_SESSION_WEB_TOOLS", f"{_HERMES_SESSION_TOOLS},web").strip()
+    or f"{_HERMES_SESSION_TOOLS},web"
+)
+
+
+def _hermes_session_chat_argv(
+    message: str,
+    resume_id: str | None,
+    *,
+    tools: str = _HERMES_SESSION_TOOLS,
+) -> list[str]:
     """Fixed argv for ``hermes chat -q … -Q [--resume ID] --source tool -t …`` (no user flags)."""
     exe = _hermes_bin()
     if resume_id:
@@ -1426,7 +1438,7 @@ def _hermes_session_chat_argv(message: str, resume_id: str | None) -> list[str]:
             "--source",
             "tool",
             "-t",
-            "terminal,file,memory",
+            tools,
         ]
     return [
         exe,
@@ -1437,8 +1449,13 @@ def _hermes_session_chat_argv(message: str, resume_id: str | None) -> list[str]:
         "--source",
         "tool",
         "-t",
-        "terminal,file,memory",
+        tools,
     ]
+
+
+def _hermes_web_session_chat_argv(message: str, resume_id: str | None) -> list[str]:
+    """Session chat with network/web tools enabled (same ``session_id`` as Fast/Session)."""
+    return _hermes_session_chat_argv(message, resume_id, tools=_HERMES_SESSION_WEB_TOOLS)
 
 
 class ChatSessionSendBody(BaseModel):
@@ -1485,6 +1502,15 @@ class ChatSessionSendBody(BaseModel):
                 "sessionId must contain only letters, numbers, underscore, and hyphen",
             )
         return v
+
+
+class ChatWebSendBody(ChatSessionSendBody):
+    """Web turn in the shared Hermes session (``hermes chat`` with web tools)."""
+
+    policyConfirmationToken: str | None = Field(
+        default=None,
+        description="Required for network web-send when policy gate demands confirmation",
+    )
 
 
 @router.get("/chat/sessions")
@@ -1754,11 +1780,11 @@ async def chat_send(
 
 @router.post("/chat/web-send")
 async def chat_web_send(
-    body: ChatSendBody,
+    body: ChatWebSendBody,
     request: Request,
     ws: Path = Depends(workspace_dep),
 ) -> dict[str, Any]:
-    """Run `hermes -t web -z <message>` for internet/search-focused requests."""
+    """Run ``hermes chat`` with web tools in the same session as Fast/Session (``--resume``)."""
     action = "network web-send"
     _enforce_policy(
         request=request,
@@ -1807,7 +1833,7 @@ async def chat_web_send(
                 outcome="failed",
             )
     timeout_sec = get_chat_timeout_seconds()
-    argv = [_hermes_bin(), "-t", "web", "-z", body.message]
+    argv = _hermes_web_session_chat_argv(body.message, body.sessionId)
     _emit_hermes_spawn(run_id=run_id, argv=argv, endpoint="/api/chat/web-send")
     started = time.monotonic()
     try:
@@ -1829,27 +1855,33 @@ async def chat_web_send(
         elapsed_ms = int((time.monotonic() - started) * 1000)
         return {
             "response": f"Hermes web mode timed out after {timeout_sec} seconds.\n",
+            "sessionId": body.sessionId,
             "exitCode": 124,
             "durationMs": elapsed_ms,
-            "mode": "web-oneshot",
+            "mode": "web-session",
             "orchestratorMode": orchestrator_mode.value,
             "researchQueryId": research_query_id,
+            "parseWarning": None,
         }
 
-    text = out.decode("utf-8", errors="replace")
+    raw = out.decode("utf-8", errors="replace")
     code = proc.returncode if proc.returncode is not None else -1
     elapsed_ms = int((time.monotonic() - started) * 1000)
-
+    response_text, parsed_sid, parse_warn = _parse_hermes_session_chat_stdout(raw)
     if code != 0:
-        text = (f"Hermes exited with code {code}.\n\n{text}".strip() + "\n").strip()
+        response_text = (
+            f"Hermes exited with code {code}.\n\n{response_text}".strip() + "\n"
+        ).strip()
 
     return {
-        "response": text,
+        "response": response_text,
+        "sessionId": parsed_sid,
         "exitCode": code,
         "durationMs": elapsed_ms,
-        "mode": "web-oneshot",
+        "mode": "web-session",
         "orchestratorMode": orchestrator_mode.value,
         "researchQueryId": research_query_id,
+        "parseWarning": parse_warn,
     }
 
 

@@ -6,6 +6,7 @@ import { ChatAlerts } from "@/components/chat/ChatAlerts";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { ChatEngine } from "@/hooks/useChatEngine";
+import { modeLabel } from "@/lib/chat-thread";
 import { Trash2 } from "lucide-react";
 
 export function ConversationPanel({ chat }: { chat: ChatEngine }) {
@@ -87,7 +88,8 @@ export function ConversationPanel({ chat }: { chat: ChatEngine }) {
             <div className="min-w-0">
               <h2 className="text-sm font-medium text-[var(--chat-text)]">Conversation</h2>
               <p className="truncate text-[11px] text-[var(--chat-meta-fg)]">
-                {sessionId ? `Session ${sessionId.slice(0, 12)}…` : "New conversation"} · {chatMode}
+                {sessionId ? `Hermes ${sessionId.slice(0, 12)}…` : "New conversation"} · next:{" "}
+                {modeLabel(chatMode)}
               </p>
             </div>
             {sessionId && (

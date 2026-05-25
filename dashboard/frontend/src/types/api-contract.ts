@@ -80,11 +80,13 @@ export type ChatSendResponse = {
 
 export type ChatWebSendResponse = {
   response: string;
+  sessionId: string | null;
   exitCode: number;
   durationMs: number;
-  mode: "web-oneshot";
+  mode: "web-session";
   orchestratorMode?: OrchestratorMode;
   researchQueryId?: string | null;
+  parseWarning?: string | null;
 };
 
 export type ChatSessionSendResponse = {
