@@ -36,6 +36,21 @@ function ngrokHeaders(): Record<string, string> {
   return {};
 }
 
+function unreachableBackendMessage(): string {
+  const base = apiBase();
+  if (!base) {
+    return (
+      "Backend unreachable. Start FastAPI on port 8080 " +
+      "(cd dashboard/backend && .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8080). " +
+      "With VITE_API_BASE_URL unset, Vite dev proxies /api to localhost:8080."
+    );
+  }
+  return (
+    `Backend unreachable at ${base}. Check VITE_API_BASE_URL, ensure FastAPI is running, ` +
+    "and add this UI origin to backend CORS_ORIGINS."
+  );
+}
+
 export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   const p = path.startsWith("/") ? path : `/${path}`;
   const extra = ngrokHeaders();
@@ -43,7 +58,11 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
   for (const [key, value] of Object.entries(extra)) {
     if (!headers.has(key)) headers.set(key, value);
   }
-  return fetch(`${apiBase()}${p}`, { ...init, headers });
+  try {
+    return await fetch(`${apiBase()}${p}`, { ...init, headers });
+  } catch {
+    throw new Error(unreachableBackendMessage());
+  }
 }
 
 export async function getJson<T>(path: string): Promise<T> {

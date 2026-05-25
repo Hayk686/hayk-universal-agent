@@ -95,6 +95,71 @@ async function gate<T>(real: () => Promise<T>, mock: () => Promise<T>): Promise<
 /** How workspace status was resolved — for UI badges when API is unreachable. */
 export type StatusOrigin = "live" | "mock-env" | "mock-offline";
 
+export type CapabilitiesOrigin = "live" | "mock-env";
+
+const MOCK_CAPABILITIES: CapabilitiesResponse = {
+  policyGate: true,
+  observability: true,
+  memoryIndex: true,
+  artifactsIndex: true,
+  contextRouter: true,
+  toolExecutor: true,
+  researchPipeline: true,
+  browserDriver: true,
+  dailyTasks: true,
+  orchestrator: true,
+};
+
+function formatCapabilitiesError(e: unknown): string {
+  const msg = e instanceof Error ? e.message : String(e);
+  if (
+    msg.includes("Failed to fetch") ||
+    msg.includes("NetworkError") ||
+    msg.includes("Backend unreachable")
+  ) {
+    const base = client.apiBase();
+    if (!base) {
+      return (
+        "Backend unreachable — start FastAPI on port 8080 or set VITE_API_BASE_URL to your Pi/tunnel URL."
+      );
+    }
+    return `Backend unreachable at ${base} — verify FastAPI is running and CORS allows this origin.`;
+  }
+  if (msg.includes("HTML instead of JSON")) {
+    return (
+      "API returned HTML instead of JSON. Deploy from repo root (api/capabilities.js), " +
+      "set VITE_API_BASE_URL to FastAPI, or set VITE_USE_MOCKS=true for a frontend-only preview."
+    );
+  }
+  if (/\b404\b/.test(msg) || /not found/i.test(msg)) {
+    return (
+      "GET /api/capabilities not found — deploy from repo root so Vercel serves api/capabilities.js, " +
+      "or point VITE_API_BASE_URL at FastAPI."
+    );
+  }
+  return msg.length > 240 ? `${msg.slice(0, 240)}…` : msg;
+}
+
+/**
+ * Load GET /api/capabilities with actionable errors (no silent mock fallback).
+ * Toggles must reflect server truth; callers show `error` and offer retry when set.
+ */
+export async function fetchCapabilities(): Promise<{
+  data: CapabilitiesResponse | null;
+  origin: CapabilitiesOrigin;
+  error?: string;
+}> {
+  if (client.useMocks()) {
+    return { data: MOCK_CAPABILITIES, origin: "mock-env" };
+  }
+  try {
+    const data = await client.getJson<CapabilitiesResponse>("/api/capabilities");
+    return { data, origin: "live" };
+  } catch (e) {
+    return { data: null, origin: "live", error: formatCapabilitiesError(e) };
+  }
+}
+
 /**
  * Load GET /api/status, or mock payload when `VITE_USE_MOCKS` is set.
  * If the real request fails (network, 404, etc.), returns mock data with `mock-offline`
@@ -343,18 +408,7 @@ export const api = {
   getCapabilities: () =>
     gate(
       () => client.getJson<CapabilitiesResponse>("/api/capabilities"),
-      async () => ({
-        policyGate: true,
-        observability: true,
-        memoryIndex: true,
-        artifactsIndex: true,
-        contextRouter: true,
-        toolExecutor: true,
-        researchPipeline: true,
-        browserDriver: true,
-        dailyTasks: true,
-        orchestrator: true,
-      }),
+      async () => MOCK_CAPABILITIES,
     ),
 
   getMemoryActiveContext: () =>

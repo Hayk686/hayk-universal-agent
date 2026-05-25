@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
-import { Brain, GitBranch, Shield, Wrench, Layers, Eye, Search, Globe, ListTodo, Archive } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Brain, GitBranch, Shield, Wrench, Layers, Eye, Search, Globe, ListTodo, Archive, RefreshCw } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { api } from "@/lib/api";
+import { api, fetchCapabilities } from "@/lib/api";
 import type { CapabilitiesResponse } from "@/types/api-contract";
 
 type CapabilityKey = keyof CapabilitiesResponse;
@@ -80,41 +81,64 @@ const CAPABILITIES: ComponentDef[] = [
 export function ActiveComponentsPanel() {
   const [capabilities, setCapabilities] = useState<CapabilitiesResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   const [taskCount, setTaskCount] = useState<number | null>(null);
   const [artifactCount, setArtifactCount] = useState<number | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const load = useCallback(async (cancelled: () => boolean) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [capsResult, tasks, artifacts] = await Promise.all([
+        fetchCapabilities(),
+        api.listTasks().catch(() => ({ tasks: [] })),
+        api.listArtifacts().catch(() => ({ artifacts: [] })),
+      ]);
+      if (cancelled()) return;
+      if (capsResult.error || !capsResult.data) {
+        setCapabilities(null);
+        setError(capsResult.error ?? "Could not load capabilities");
+      } else {
+        setCapabilities(capsResult.data);
+        setError(null);
+      }
+      setTaskCount(tasks.tasks.length);
+      setArtifactCount(artifacts.artifacts.length);
+    } finally {
+      if (!cancelled()) setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      try {
-        const [caps, tasks, artifacts] = await Promise.all([
-          api.getCapabilities(),
-          api.listTasks().catch(() => ({ tasks: [] })),
-          api.listArtifacts().catch(() => ({ artifacts: [] })),
-        ]);
-        if (!cancelled) {
-          setCapabilities(caps);
-          setTaskCount(tasks.tasks.length);
-          setArtifactCount(artifacts.artifacts.length);
-          setError(null);
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setError(e instanceof Error ? e.message : String(e));
-        }
-      }
-    })();
+    void load(() => cancelled);
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [load, reloadKey]);
 
   return (
     <div className="shrink-0 rounded-lg border border-border/50 bg-card/40 p-2">
-      <h3 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-        Server Capabilities
-      </h3>
-      {(taskCount !== null || artifactCount !== null) && (
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Server Capabilities
+        </h3>
+        {error ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-6 px-1.5 text-[10px] text-muted-foreground"
+            onClick={() => setReloadKey((k) => k + 1)}
+            disabled={loading}
+          >
+            <RefreshCw className={cn("mr-1 h-3 w-3", loading && "animate-spin")} />
+            Retry
+          </Button>
+        ) : null}
+      </div>
+      {(taskCount !== null || artifactCount !== null) && !error ? (
         <p className="mb-1.5 text-[10px] text-muted-foreground">
           {taskCount !== null ? `${taskCount} task${taskCount === 1 ? "" : "s"}` : null}
           {taskCount !== null && artifactCount !== null ? " · " : null}
@@ -122,11 +146,11 @@ export function ActiveComponentsPanel() {
             ? `${artifactCount} artifact${artifactCount === 1 ? "" : "s"}`
             : null}
         </p>
-      )}
+      ) : null}
       {error ? (
-        <p className="mb-1 text-[10px] text-destructive" title={error}>
-          Could not load capabilities
-        </p>
+        <p className="mb-1.5 text-[10px] leading-snug text-destructive">{error}</p>
+      ) : loading && !capabilities ? (
+        <p className="mb-1.5 text-[10px] text-muted-foreground">Loading capabilities…</p>
       ) : null}
       <ul className="space-y-1">
         {CAPABILITIES.map(({ key, label, description, icon: Icon }) => {
