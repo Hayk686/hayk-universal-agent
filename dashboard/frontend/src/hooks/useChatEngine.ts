@@ -393,6 +393,43 @@ export function useChatEngine() {
     }
   }
 
+  async function deleteRecentSession(sessionIdToDelete: string) {
+    if (loading) return;
+
+    const ok = window.confirm(
+      `Delete Hermes session ${sessionIdToDelete}? This cannot be undone.`,
+    );
+    if (!ok) return;
+
+    setResumeError(null);
+    setResumeStatus(null);
+
+    try {
+      const res = await api.deleteChatSession(sessionIdToDelete);
+      if (!res.ok) throw new Error(await res.text());
+
+      setRecentSessions((items) =>
+        items.filter((item) => item.sessionId !== sessionIdToDelete),
+      );
+
+      if (sessionId === sessionIdToDelete) {
+        setSessionId(null);
+        setHistory([]);
+        setResumeSessionInput("");
+        try {
+          localStorage.removeItem(LS_SESSION);
+          localStorage.removeItem(LS_HISTORY);
+        } catch {
+          /* ignore */
+        }
+      }
+
+      setResumeStatus(`Deleted session ${sessionIdToDelete}`);
+    } catch (e) {
+      setResumeError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   async function loadSessionTranscript(sessionIdOverride?: string) {
     const sid = (sessionIdOverride ?? resumeSessionInput).trim();
     if (!sid || loading) return;
@@ -463,6 +500,7 @@ export function useChatEngine() {
     newSession,
     loadRecentSessions,
     loadSessionTranscript,
+    deleteRecentSession,
   };
 }
 

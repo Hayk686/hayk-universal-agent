@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Bot, ChevronDown, Loader2, Paperclip, Send, XCircle } from "lucide-react";
+import { Bot, ChevronDown, Loader2, Paperclip, Send, Trash2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { ChatEngine, ChatMode } from "@/hooks/useChatEngine";
@@ -151,7 +151,10 @@ export function ConversationPanel({ chat }: { chat: ChatEngine }) {
     send,
     cancelInFlight,
     loadSessionTranscript,
+    deleteRecentSession,
     recentSessions,
+    resumeError,
+    resumeStatus,
   } = chat;
 
   const showEmpty = history.length === 0 && !loading;
@@ -167,15 +170,33 @@ export function ConversationPanel({ chat }: { chat: ChatEngine }) {
               </p>
               <div className="hayk-scrollbar max-h-full space-y-0.5 overflow-y-auto">
                 {recentSessions.slice(0, 8).map((s) => (
-                  <button
+                  <div
                     key={s.sessionId}
-                    type="button"
-                    className="w-full truncate rounded-md px-1.5 py-1 text-left text-[10px] text-muted-foreground hover:bg-accent/25 hover:text-foreground"
-                    onClick={() => void loadSessionTranscript(s.sessionId)}
-                    disabled={loading}
+                    className={cn(
+                      "group flex items-center gap-0.5 rounded-md",
+                      sessionId === s.sessionId && "bg-primary/10",
+                    )}
                   >
-                    {s.title || s.preview || s.sessionId.slice(0, 8)}
-                  </button>
+                    <button
+                      type="button"
+                      className="min-w-0 flex-1 truncate rounded-md px-1.5 py-1 text-left text-[10px] text-muted-foreground hover:bg-accent/25 hover:text-foreground"
+                      onClick={() => void loadSessionTranscript(s.sessionId)}
+                      disabled={loading}
+                      title={s.sessionId}
+                    >
+                      {s.title || s.preview || s.sessionId.slice(0, 8)}
+                    </button>
+                    <button
+                      type="button"
+                      className="shrink-0 rounded-md p-1 text-muted-foreground opacity-0 transition hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 focus:opacity-100 disabled:opacity-40"
+                      onClick={() => void deleteRecentSession(s.sessionId)}
+                      disabled={loading}
+                      aria-label={`Delete session ${s.sessionId}`}
+                      title="Delete chat"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
                 ))}
               </div>
             </div>
@@ -183,13 +204,27 @@ export function ConversationPanel({ chat }: { chat: ChatEngine }) {
         )}
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex items-center justify-between border-b border-border/40 px-4 py-2.5">
-            <div>
+          <div className="flex items-center justify-between gap-2 border-b border-border/40 px-4 py-2.5">
+            <div className="min-w-0">
               <h2 className="text-sm font-semibold text-foreground">Conversation</h2>
-              <p className="text-[10px] text-muted-foreground">
+              <p className="truncate text-[10px] text-muted-foreground">
                 {sessionId ? `Session ${sessionId.slice(0, 12)}…` : "New conversation"} · {chatMode} mode
               </p>
             </div>
+            {sessionId && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 shrink-0 gap-1 rounded-lg px-2 text-[10px] text-destructive hover:bg-destructive/10 hover:text-destructive"
+                onClick={() => void deleteRecentSession(sessionId)}
+                disabled={loading}
+                title="Delete this chat session"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete
+              </Button>
+            )}
           </div>
 
           <div className="hayk-scrollbar min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
@@ -242,12 +277,14 @@ export function ConversationPanel({ chat }: { chat: ChatEngine }) {
               </div>
             )}
 
-            {(httpError || cancelNote || parseWarning || sessionTimeoutHint) && (
+            {(httpError || cancelNote || parseWarning || sessionTimeoutHint || resumeError || resumeStatus) && (
               <div className="space-y-2">
                 {httpError && <AlertBlock tone="error" text={httpError} />}
+                {resumeError && <AlertBlock tone="error" text={resumeError} />}
                 {cancelNote && <AlertBlock tone="warning" text={cancelNote} />}
                 {parseWarning && <AlertBlock tone="warning" text={parseWarning} />}
                 {sessionTimeoutHint && <AlertBlock tone="warning" text={sessionTimeoutHint} />}
+                {resumeStatus && <AlertBlock tone="info" text={resumeStatus} />}
               </div>
             )}
 
@@ -367,14 +404,14 @@ function MessageBubble({
   );
 }
 
-function AlertBlock({ tone, text }: { tone: "error" | "warning"; text: string }) {
+function AlertBlock({ tone, text }: { tone: "error" | "warning" | "info"; text: string }) {
   return (
     <div
       className={cn(
         "rounded-lg border px-3 py-2 text-xs",
-        tone === "error"
-          ? "border-destructive/40 bg-destructive/10 text-destructive"
-          : "border-warning/40 bg-warning/10 text-warning",
+        tone === "error" && "border-destructive/40 bg-destructive/10 text-destructive",
+        tone === "warning" && "border-warning/40 bg-warning/10 text-warning",
+        tone === "info" && "border-primary/30 bg-primary/10 text-foreground",
       )}
     >
       {text}
