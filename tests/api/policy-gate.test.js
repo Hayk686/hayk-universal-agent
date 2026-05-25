@@ -6,12 +6,12 @@ const assert = require("node:assert/strict");
 const {
   classifyAction,
   isWhitelistedCommand,
-} = require("./policy-gate");
+} = require("../../api/_lib/policy-gate");
 const {
   issueConfirmationToken,
   verifyConfirmationToken,
-} = require("./policy-confirm");
-const { enforcePolicy } = require("./policy-enforce");
+} = require("../../api/_lib/policy-confirm");
+const { enforcePolicy } = require("../../api/_lib/policy-enforce");
 
 const ORIGINAL_ENV = { ...process.env };
 

@@ -117,8 +117,14 @@ Serverless paths with JS PolicyGate (mirrors Python `gate.py`):
 
 Structured policy events are logged as JSON to Vercel function logs.
 
+## Serverless layout
+
+Policy helpers live under `api/_lib/` (leading `_` so Vercel does not deploy them as
+extra functions). The Hobby plan allows **12** Serverless Functions per deployment;
+putting shared modules in `api/lib/` previously exceeded that limit and failed the build.
+
 ## Tests
 
 ```bash
-node --test api/lib/policy-gate.test.js
+node --test tests/api/policy-gate.test.js
 ```

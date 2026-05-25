@@ -1,7 +1,7 @@
 const { cors, json, readBody } = require("./_openrouter");
 const { getContentFile, putContentFile } = require("./_github");
 const { readText } = require("./_repo");
-const { enforcePolicy } = require("./lib/policy-enforce");
+const { enforcePolicy } = require("./_lib/policy-enforce");
 
 module.exports = async function handler(req, res) {
   if (req.method === "OPTIONS") {

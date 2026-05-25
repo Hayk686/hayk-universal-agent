@@ -1,6 +1,6 @@
 const { callOpenRouter, cors, json, readBody } = require("../_openrouter");
-const { enforcePolicy } = require("../lib/policy-enforce");
-const { EXEC_WHITELIST } = require("../lib/policy-gate");
+const { enforcePolicy } = require("../_lib/policy-enforce");
+const { EXEC_WHITELIST } = require("../_lib/policy-gate");
 
 const commands = [...EXEC_WHITELIST];
 

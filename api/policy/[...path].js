@@ -1,7 +1,7 @@
 const { cors, json, readBody } = require("../_openrouter");
-const { classifyAction, toDict } = require("../lib/policy-gate");
-const { verifyConfirmationToken } = require("../lib/policy-confirm");
-const { emitPolicyEvent, runIdFromRequest } = require("../lib/policy-enforce");
+const { classifyAction, toDict } = require("../_lib/policy-gate");
+const { verifyConfirmationToken } = require("../_lib/policy-confirm");
+const { emitPolicyEvent, runIdFromRequest } = require("../_lib/policy-enforce");
 
 function routeName(req) {
   const pathname = new URL(req.url || "/", "https://local.invalid").pathname;

@@ -1,5 +1,5 @@
 const { callOpenRouter, cors, json, readBody, validateMessage } = require("../_openrouter");
-const { enforceChatMessagePolicy, enforcePolicy } = require("../lib/policy-enforce");
+const { enforceChatMessagePolicy, enforcePolicy } = require("../_lib/policy-enforce");
 
 function routeName(req) {
   const pathname = new URL(req.url || "/", "https://local.invalid").pathname;
