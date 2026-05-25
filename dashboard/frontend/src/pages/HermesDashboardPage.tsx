@@ -38,10 +38,10 @@ export function HermesDashboardPage() {
         newSessionDisabled={chat.loading}
       />
 
-      <div className="hermes-dashboard-grid min-h-0 flex-1 overflow-hidden p-3 sm:p-4">
+      <div className="hermes-dashboard-grid min-h-0 flex-1 overflow-hidden p-2 sm:p-3">
         <SystemOverviewPanel metrics={chat.metrics} chartData={chat.chartData} />
         <ConversationPanel chat={chat} />
-        <aside className="hermes-panel hermes-panel-right flex min-h-0 flex-col gap-3 overflow-hidden">
+        <aside className="hermes-panel hermes-panel-right flex min-h-0 flex-col gap-2 overflow-hidden">
           <ActiveComponentsPanel />
           <RecentLogsPanel cliBusy={chat.loading} />
         </aside>

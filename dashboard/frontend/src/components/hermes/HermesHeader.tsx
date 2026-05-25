@@ -40,7 +40,7 @@ function StatusBadge({
   return (
     <div
       className={cn(
-        "flex items-center gap-2 rounded-lg border px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider",
+        "flex items-center gap-1.5 rounded-md border px-2 py-1 font-mono text-[10px] uppercase tracking-wider",
         toneClass,
       )}
     >
@@ -66,22 +66,22 @@ export function HermesHeader({
 }: HermesHeaderProps) {
   return (
     <header
-      className="hermes-header flex h-14 shrink-0 items-center justify-between gap-4 border-b border-border/50 bg-card/40 px-4 backdrop-blur-xl sm:h-16 sm:px-5"
+      className="hermes-header flex h-11 shrink-0 items-center justify-between gap-2 border-b border-border/50 bg-card/40 px-3 backdrop-blur-xl sm:px-4"
       data-hermes-header
     >
-      <div className="flex min-w-0 items-center gap-3">
-        <HermesLogo />
+      <div className="flex min-w-0 items-center gap-2">
+        <HermesLogo className="h-7 w-7" />
         <div className="min-w-0">
-          <span className="block text-base font-semibold tracking-tight text-foreground sm:text-lg">
+          <span className="block text-sm font-semibold tracking-tight text-foreground">
             Hermes
           </span>
-          <span className="hidden text-[10px] uppercase tracking-[0.2em] text-muted-foreground sm:block">
+          <span className="hidden text-[9px] uppercase tracking-[0.18em] text-muted-foreground md:block">
             Command Center
           </span>
         </div>
       </div>
 
-      <div className="hidden items-center gap-2 lg:flex">
+      <div className="hidden items-center gap-1.5 lg:flex">
         <StatusBadge
           label="System"
           value={systemStatus === "active" ? "Active" : systemStatus === "degraded" ? "Degraded" : "Offline"}
@@ -113,16 +113,16 @@ export function HermesHeader({
           type="button"
           variant="outline"
           size="sm"
-          className="rounded-lg border-primary/40 text-primary hover:bg-primary/10"
+          className="h-7 rounded-md border-primary/40 px-2 text-xs text-primary hover:bg-primary/10"
           onClick={onNewSession}
           disabled={newSessionDisabled}
         >
-          <Plus className="h-3.5 w-3.5" />
+          <Plus className="h-3 w-3" />
           <span className="hidden sm:inline">New Session</span>
         </Button>
         <Link
           to="/settings"
-          className="flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-muted/30 text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
+          className="flex h-7 w-7 items-center justify-center rounded-full border border-border/60 bg-muted/30 text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
           aria-label="Settings & profile"
           title="Settings"
         >

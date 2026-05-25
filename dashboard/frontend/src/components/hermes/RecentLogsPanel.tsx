@@ -102,24 +102,24 @@ export function RecentLogsPanel({ cliBusy }: { cliBusy?: boolean }) {
   ];
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-border/50 bg-[#0c1220]">
-      <div className="flex items-center justify-between gap-2 border-b border-border/40 px-3 py-2">
-        <div>
-          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+    <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-border/50 bg-[#0c1220]">
+      <div className="flex items-center justify-between gap-1.5 border-b border-border/40 px-2 py-1.5">
+        <div className="min-w-0">
+          <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             Recent Logs
           </h3>
           {cliBusy && (
-            <p className="text-[10px] text-warning">CLI busy — logs may lag</p>
+            <p className="truncate text-[9px] text-warning">CLI busy</p>
           )}
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex shrink-0 items-center gap-0.5">
           {filters.map((f) => (
             <button
               key={f.id}
               type="button"
               onClick={() => setFilter(f.id)}
               className={cn(
-                "rounded px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider transition",
+                "rounded px-1 py-0.5 font-mono text-[8px] uppercase tracking-wider transition",
                 filter === f.id
                   ? "bg-primary/20 text-primary"
                   : "text-muted-foreground hover:text-foreground",
@@ -132,25 +132,25 @@ export function RecentLogsPanel({ cliBusy }: { cliBusy?: boolean }) {
             type="button"
             variant="ghost"
             size="icon"
-            className="h-7 w-7 text-muted-foreground"
+            className="h-6 w-6 text-muted-foreground"
             onClick={() => void load()}
             disabled={loading}
             aria-label="Refresh logs"
           >
-            <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
+            <RefreshCw className={cn("h-3 w-3", loading && "animate-spin")} />
           </Button>
         </div>
       </div>
 
       {error && (
-        <p className="border-b border-destructive/20 bg-destructive/5 px-3 py-1.5 text-[10px] text-destructive">
+        <p className="border-b border-destructive/20 bg-destructive/5 px-2 py-1 text-[9px] text-destructive">
           {error}
         </p>
       )}
 
       <div
         ref={scrollRef}
-        className="hayk-scrollbar min-h-[200px] flex-1 overflow-y-auto p-3 font-mono text-[11px] leading-relaxed"
+        className="hayk-scrollbar min-h-0 flex-1 overflow-y-auto p-2 font-mono text-[10px] leading-snug"
       >
         {lines.length === 0 ? (
           <p className="text-muted-foreground">No log entries for this filter.</p>

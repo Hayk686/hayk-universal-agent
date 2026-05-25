@@ -8,8 +8,8 @@ const RequestActivityChart = lazy(() => import("./RequestActivityChart"));
 
 function ChartSkeleton() {
   return (
-    <div className="flex h-[180px] w-full flex-col justify-end gap-2">
-      <Skeleton className="h-[140px] w-full rounded-lg" />
+    <div className="hermes-chart-area flex w-full flex-col justify-end gap-1">
+      <Skeleton className="min-h-0 flex-1 w-full rounded-md" />
       <div className="flex justify-between gap-2 px-1">
         {Array.from({ length: 5 }).map((_, i) => (
           <Skeleton key={i} className="h-2 w-8 rounded" />
@@ -44,18 +44,18 @@ function MetricCard({ label, value, sublabel, delta, deltaSuffix = "", icon: Ico
   const positive = (delta ?? 0) > 0;
 
   return (
-    <div className="hermes-metric-card rounded-xl border border-border/50 bg-card/50 p-3 backdrop-blur-sm">
-      <div className="flex items-start justify-between gap-2">
+    <div className="hermes-metric-card rounded-lg border border-border/50 bg-card/50 p-2 backdrop-blur-sm">
+      <div className="flex items-start justify-between gap-1.5">
         <div className="min-w-0">
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
-          <p className="mt-1 text-xl font-semibold tabular-nums text-foreground">{value}</p>
+          <p className="text-[9px] uppercase tracking-wider text-muted-foreground">{label}</p>
+          <p className="mt-0.5 text-base font-semibold tabular-nums leading-none text-foreground">{value}</p>
         </div>
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border/40 bg-background/40 text-primary">
-          <Icon className="h-4 w-4" />
+        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-border/40 bg-background/40 text-primary">
+          <Icon className="h-3 w-3" />
         </div>
       </div>
-      <div className="mt-2 flex items-center justify-between gap-2">
-        <span className="text-[10px] text-muted-foreground">{sublabel}</span>
+      <div className="mt-1 flex items-center justify-between gap-1">
+        <span className="text-[9px] text-muted-foreground">{sublabel}</span>
         {hasDelta && (
           <span
             className={cn(
@@ -86,14 +86,12 @@ export function SystemOverviewPanel({
   chartData: ActivityPoint[];
 }) {
   return (
-    <aside className="hermes-panel hermes-panel-left flex min-h-0 flex-col gap-3 overflow-hidden">
-      <div>
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          System Overview
-        </h2>
-      </div>
+    <aside className="hermes-panel hermes-panel-left flex min-h-0 flex-col gap-2 overflow-hidden">
+      <h2 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        System Overview
+      </h2>
 
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-2 gap-1.5">
         <MetricCard
           label="Total Messages"
           value={formatCount(metrics.totalMessages)}
@@ -127,12 +125,12 @@ export function SystemOverviewPanel({
         />
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-border/50 bg-card/40 p-3">
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+      <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-border/50 bg-card/40 p-2">
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             Request Activity
           </h3>
-          <span className="text-[10px] text-muted-foreground">Last 24h</span>
+          <span className="text-[9px] text-muted-foreground">24h</span>
         </div>
         <Suspense fallback={<ChartSkeleton />}>
           <RequestActivityChart data={chartData} />

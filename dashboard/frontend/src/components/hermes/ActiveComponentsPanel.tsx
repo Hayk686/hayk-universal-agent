@@ -80,31 +80,34 @@ export function ActiveComponentsPanel() {
   }
 
   return (
-    <div className="rounded-xl border border-border/50 bg-card/40 p-3">
-      <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+    <div className="shrink-0 rounded-lg border border-border/50 bg-card/40 p-2">
+      <h3 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
         Active Components
       </h3>
-      <ul className="space-y-2">
+      <ul className="space-y-1">
         {COMPONENTS.map(({ key, label, description, icon: Icon }) => {
           const on = state[key];
           return (
             <li
               key={key}
-              className="flex items-center gap-3 rounded-lg border border-border/40 bg-background/25 px-3 py-2.5"
+              className="flex items-center gap-2 rounded-md border border-border/40 bg-background/25 px-2 py-1.5"
+              title={description}
             >
               <div
                 className={cn(
-                  "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border",
+                  "flex h-6 w-6 shrink-0 items-center justify-center rounded-md border",
                   on ? "border-primary/30 bg-primary/10 text-primary" : "border-border/50 text-muted-foreground",
                 )}
               >
-                <Icon className="h-4 w-4" />
+                <Icon className="h-3 w-3" />
               </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-foreground">{label}</p>
-                <p className="text-[10px] leading-snug text-muted-foreground">{description}</p>
-              </div>
-              <Switch checked={on} onCheckedChange={() => toggle(key)} aria-label={label} />
+              <p className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">{label}</p>
+              <Switch
+                checked={on}
+                onCheckedChange={() => toggle(key)}
+                aria-label={label}
+                className="scale-90"
+              />
             </li>
           );
         })}

@@ -13,9 +13,9 @@ import type { ActivityPoint } from "./chart-types";
 
 export default function RequestActivityChart({ data }: { data: ActivityPoint[] }) {
   return (
-    <div className="h-[180px] w-full">
+    <div className="hermes-chart-area w-full">
       <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={data} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+        <AreaChart data={data} margin={{ top: 0, right: 2, left: -22, bottom: 0 }}>
           <defs>
             <linearGradient id="reqFill" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.35} />
@@ -53,8 +53,8 @@ export default function RequestActivityChart({ data }: { data: ActivityPoint[] }
             verticalAlign="top"
             align="right"
             iconType="circle"
-            iconSize={8}
-            wrapperStyle={{ fontSize: 10, color: "#94a3b8", paddingBottom: 8 }}
+            iconSize={6}
+            wrapperStyle={{ fontSize: 9, color: "#94a3b8", paddingBottom: 4 }}
           />
           <Area
             type="monotone"
