@@ -12,7 +12,6 @@ export const TIMEOUT_HELP =
   "Hermes timed out. Try a shorter prompt, switch model/provider, or increase CHAT_TIMEOUT_SECONDS.";
 
 export type ChatMode = "fast" | "web" | "session";
-export type ConversationCategory = "general" | "marketing" | "analysis";
 
 export type TurnMode = "hermes-session" | "oneshot" | "web-oneshot";
 
@@ -24,7 +23,6 @@ export type HistoryMsg = {
   durationMs?: number;
   mode?: TurnMode;
   timestamp?: number;
-  category?: ConversationCategory;
 };
 
 const PROGRESS_LINES_BASE = [
@@ -152,7 +150,6 @@ export function buildChartData(buckets: ActivityBucket[]) {
 export function useChatEngine() {
   const [input, setInput] = useState("");
   const [chatMode, setChatMode] = useState<ChatMode>(readChatMode);
-  const [category, setCategory] = useState<ConversationCategory>("general");
   const [sessionId, setSessionId] = useState<string | null>(readStoredSession);
   const [history, setHistory] = useState<HistoryMsg[]>(readStoredHistory);
   const [resumeSessionInput, setResumeSessionInput] = useState(readStoredSession() ?? "");
@@ -277,7 +274,7 @@ export function useChatEngine() {
     setActivityBuckets(readActivity());
     setHistory((h) => [
       ...h,
-      { id: uid(), role: "user", content: userText, timestamp: ts, category },
+      { id: uid(), role: "user", content: userText, timestamp: ts },
       {
         id: uid(),
         role: "assistant",
@@ -286,7 +283,6 @@ export function useChatEngine() {
         durationMs: data.durationMs,
         mode,
         timestamp: ts,
-        category,
       },
     ]);
   }
@@ -441,8 +437,6 @@ export function useChatEngine() {
     setInput,
     chatMode,
     setChatMode,
-    category,
-    setCategory,
     sessionId,
     history,
     resumeError,

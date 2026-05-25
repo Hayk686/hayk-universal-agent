@@ -60,3 +60,5 @@ _lovable-hub/
 *.tsbuildinfo
 dashboard/frontend/vite.config.js
 dashboard/frontend/vite.config.d.ts
+
+.vercel
