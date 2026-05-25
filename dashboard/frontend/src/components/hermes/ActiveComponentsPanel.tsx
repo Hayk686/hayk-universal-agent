@@ -3,7 +3,7 @@ import { Brain, GitBranch, Shield, Wrench, Layers, Eye, Search, Globe, ListTodo,
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { api, fetchCapabilities } from "@/lib/api";
+import { api, apiBase, fetchCapabilities, useMocks } from "@/lib/api";
 import type { CapabilitiesResponse } from "@/types/api-contract";
 
 type CapabilityKey = keyof CapabilitiesResponse;
@@ -78,6 +78,21 @@ const CAPABILITIES: ComponentDef[] = [
   },
 ];
 
+function backendSourceLabel(caps: CapabilitiesResponse | null): string | null {
+  if (useMocks()) return "Preview mode (mock data)";
+  const base = apiBase();
+  if (base) {
+    try {
+      return `PC backend · ${new URL(base).host}`;
+    } catch {
+      return "PC backend";
+    }
+  }
+  const allOn = caps !== null && Object.values(caps).every(Boolean);
+  if (allOn) return "Full FastAPI backend";
+  return "Vercel cloud API (partial capabilities)";
+}
+
 export function ActiveComponentsPanel() {
   const [capabilities, setCapabilities] = useState<CapabilitiesResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -138,6 +153,11 @@ export function ActiveComponentsPanel() {
           </Button>
         ) : null}
       </div>
+      {!error && !loading ? (
+        <p className="mb-1.5 text-[10px] text-muted-foreground/90">
+          {backendSourceLabel(capabilities)}
+        </p>
+      ) : null}
       {(taskCount !== null || artifactCount !== null) && !error ? (
         <p className="mb-1.5 text-[10px] text-muted-foreground">
           {taskCount !== null ? `${taskCount} task${taskCount === 1 ? "" : "s"}` : null}

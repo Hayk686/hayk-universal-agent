@@ -24,20 +24,85 @@ serverless chat/policy functions unless you also configure the root `api/` route
 
 | Mode | `VITE_API_BASE_URL` | Backend |
 |------|---------------------|---------|
-| **Pi / remote FastAPI** | `https://your-pi-or-tunnel.example` | Full Hermes + PolicyGate on FastAPI |
+| **Vercel UI + PC backend** | `https://your-tunnel.example` | Full Hermes + PolicyGate on your PC (FastAPI :8080) |
+| **Pi / remote FastAPI** | `https://your-pi-or-tunnel.example` | Same as PC mode — any remote FastAPI host |
 | **Vercel cloud API** | unset (same-origin `/api/*`) | Serverless OpenRouter proxy + JS PolicyGate |
 | **Frontend-only preview** | unset + `VITE_USE_MOCKS=true` | Mock data only |
 
 `VITE_API_BASE_URL` must be the backend root, **without** `/api` at the end.
 
+## Vercel UI + PC backend (full Hermes)
+
+Use this when the dashboard is on Vercel but Hermes runs on your Windows/Linux PC.
+
+### 1. PC — backend `.env` (`dashboard/backend/.env`)
+
+```text
+WORKSPACE_ROOT=D:\path\to\hayk-universal-agent\agent-workspace
+HERMES_BIN=hermes
+CORS_ORIGINS=https://your-app.vercel.app,http://localhost:5173,http://127.0.0.1:5173
+```
+
+`CORS_ORIGINS` must include the **exact** Vercel production URL (and Preview URLs if you use them).
+
+### 2. PC — start FastAPI (port 8080)
+
+**Windows (PowerShell):**
+
+```powershell
+cd dashboard\backend
+python -m venv .venv
+.\.venv\Scripts\pip install -r requirements.txt
+.\.venv\Scripts\uvicorn app.main:app --host 0.0.0.0 --port 8080
+```
+
+**Linux / macOS:**
+
+```bash
+cd dashboard/backend
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8080
+```
+
+Verify locally: `GET http://127.0.0.1:8080/health` → `{"status":"ok"}` and
+`GET http://127.0.0.1:8080/api/capabilities` → all flags `true`.
+
+### 3. PC — HTTPS tunnel (required for Vercel → PC)
+
+Browsers block mixed content (HTTPS Vercel UI → HTTP PC). Expose FastAPI with **HTTPS**, e.g.:
+
+- [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) (`cloudflared tunnel --url http://127.0.0.1:8080`)
+- [ngrok](https://ngrok.com/) (`ngrok http 8080`)
+- Tailscale Funnel / similar
+
+Note the public **HTTPS origin** (no trailing slash, no `/api`), e.g. `https://abc123.ngrok-free.app`.
+
+### 4. Vercel — build-time env (Project → Settings → Environment Variables)
+
+```text
+VITE_USE_MOCKS=false
+VITE_API_BASE_URL=https://abc123.ngrok-free.app
+```
+
+`VITE_API_BASE_URL` is baked in at **build** time — redeploy after changing it.
+
+### 5. Smoke test
+
+1. Open your Vercel app → **Server Capabilities** panel should show all toggles on and **PC backend · …**.
+2. DevTools → Network → `GET …/api/capabilities` should hit your tunnel URL, not `vercel.app/api/…`.
+3. If CORS fails: add the exact Vercel origin to `CORS_ORIGINS` on the PC and restart uvicorn.
+
 ## Environment variables — Pi / remote FastAPI mode
+
+Same as **Vercel UI + PC backend** above — any machine running FastAPI + Hermes.
 
 ```text
 VITE_USE_MOCKS=false
 VITE_API_BASE_URL=https://your-backend-host.example
 ```
 
-On the Pi backend, set `CORS_ORIGINS` to include your Vercel frontend URL.
+On the backend host, set `CORS_ORIGINS` to include your Vercel frontend URL.
 
 ## Environment variables — Vercel cloud API mode
 
@@ -102,8 +167,8 @@ Contents read/write on the target repo so the browser editor can save
 3. Add environment variables above (Production + Preview as needed).
 4. Deploy — Vercel builds frontend and registers `api/**/*.js` functions.
 5. Optional: add custom domain under Project → Settings → Domains.
-6. For Pi mode: expose FastAPI (port 8080) via Tailscale Funnel / tunnel and set
-   `VITE_API_BASE_URL` to that HTTPS origin.
+6. For **Vercel UI + PC backend**: expose FastAPI (port 8080) via HTTPS tunnel and set
+   `VITE_API_BASE_URL` to that origin (see section above).
 
 ## Policy-gated routes (Slice #9)
 

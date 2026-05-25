@@ -41,7 +41,7 @@ function unreachableBackendMessage(): string {
   if (!base) {
     return (
       "Backend unreachable. Start FastAPI on port 8080 " +
-      "(cd dashboard/backend && .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8080). " +
+      "(cd dashboard/backend; .venv\\Scripts\\uvicorn or .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8080). " +
       "With VITE_API_BASE_URL unset, Vite dev proxies /api to localhost:8080."
     );
   }

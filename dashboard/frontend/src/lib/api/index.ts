@@ -120,7 +120,7 @@ function formatCapabilitiesError(e: unknown): string {
     const base = client.apiBase();
     if (!base) {
       return (
-        "Backend unreachable — start FastAPI on port 8080 or set VITE_API_BASE_URL to your Pi/tunnel URL."
+        "Backend unreachable — start FastAPI on port 8080 or set VITE_API_BASE_URL to your PC/tunnel HTTPS URL."
       );
     }
     return `Backend unreachable at ${base} — verify FastAPI is running and CORS allows this origin.`;
