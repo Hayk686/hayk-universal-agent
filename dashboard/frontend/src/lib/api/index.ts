@@ -49,6 +49,7 @@ import {
 import { formatKernelApiError } from "../kernel-backend";
 import * as client from "./client";
 import * as mocks from "./mocks";
+import { isKernelBackendAvailable } from "../kernel-backend";
 
 export type ApiRequestInit = Pick<RequestInit, "signal"> & {
   policyConfirmationToken?: string;
@@ -111,6 +112,20 @@ const MOCK_CAPABILITIES: CapabilitiesResponse = {
   orchestrator: true,
 };
 
+/** Vercel cloud API without BACKEND_URL / VITE_API_BASE_URL. */
+const VERCEL_CLOUD_CAPABILITIES: CapabilitiesResponse = {
+  policyGate: true,
+  observability: true,
+  memoryIndex: false,
+  artifactsIndex: false,
+  contextRouter: false,
+  toolExecutor: false,
+  researchPipeline: false,
+  browserDriver: false,
+  dailyTasks: false,
+  orchestrator: false,
+};
+
 function formatCapabilitiesError(e: unknown): string {
   const msg = e instanceof Error ? e.message : String(e);
   if (
@@ -128,14 +143,17 @@ function formatCapabilitiesError(e: unknown): string {
   }
   if (msg.includes("HTML instead of JSON")) {
     return (
-      "API returned HTML instead of JSON. Deploy from repo root (api/capabilities.js), " +
-      "set VITE_API_BASE_URL to FastAPI, or set VITE_USE_MOCKS=true for a frontend-only preview."
+      "API returned HTML instead of JSON. Set VITE_API_BASE_URL, BACKEND_URL on Vercel, " +
+      "or paste your tunnel URL below."
     );
+  }
+  if (msg.includes("BACKEND_URL is not set")) {
+    return msg;
   }
   if (/\b404\b/.test(msg) || /not found/i.test(msg)) {
     return (
-      "GET /api/capabilities not found — deploy from repo root so Vercel serves api/capabilities.js, " +
-      "or point VITE_API_BASE_URL at FastAPI."
+      "GET /api/capabilities not found — set VITE_API_BASE_URL, BACKEND_URL on Vercel (PC proxy), " +
+      "or paste your FastAPI tunnel URL below."
     );
   }
   return msg.length > 240 ? `${msg.slice(0, 240)}…` : msg;
@@ -153,11 +171,36 @@ export async function fetchCapabilities(): Promise<{
   if (client.useMocks()) {
     return { data: MOCK_CAPABILITIES, origin: "mock-env" };
   }
+
+  const tryLoad = async (useProxy: boolean) => {
+    client.setPcProxy(useProxy);
+    return client.getJson<CapabilitiesResponse>("/api/capabilities");
+  };
+
+  if (client.apiBase()) {
+    try {
+      const data = await tryLoad(false);
+      return { data, origin: "live" };
+    } catch (e) {
+      client.setPcProxy(false);
+      return { data: null, origin: "live", error: formatCapabilitiesError(e) };
+    }
+  }
+
   try {
-    const data = await client.getJson<CapabilitiesResponse>("/api/capabilities");
+    const data = await tryLoad(true);
+    if (isKernelBackendAvailable(data)) {
+      return { data, origin: "live" };
+    }
+    client.setPcProxy(false);
     return { data, origin: "live" };
   } catch (e) {
-    return { data: null, origin: "live", error: formatCapabilitiesError(e) };
+    client.setPcProxy(false);
+    const msg = formatCapabilitiesError(e);
+    if (msg.includes("BACKEND_URL is not set")) {
+      return { data: VERCEL_CLOUD_CAPABILITIES, origin: "live" };
+    }
+    return { data: null, origin: "live", error: msg };
   }
 }
 
@@ -406,11 +449,11 @@ export const api = {
       },
     ),
 
-  getCapabilities: () =>
-    gate(
-      () => client.getJson<CapabilitiesResponse>("/api/capabilities"),
-      async () => MOCK_CAPABILITIES,
-    ),
+  getCapabilities: async () => {
+    const r = await fetchCapabilities();
+    if (r.error && !r.data) throw new Error(r.error);
+    return r.data ?? VERCEL_CLOUD_CAPABILITIES;
+  },
 
   getMemoryActiveContext: () =>
     gate(

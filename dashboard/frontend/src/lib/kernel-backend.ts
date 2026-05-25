@@ -52,9 +52,10 @@ export function workspaceUnavailableMessage(mode: KernelBackendMode): string {
 export const WORKSPACE_SETUP_STEPS: string[] = [
   "На ПК: cd dashboard/backend → uvicorn app.main:app --host 0.0.0.0 --port 8080",
   "HTTPS-туннель к :8080 (ngrok, Cloudflare Tunnel, Tailscale Funnel)",
-  "Vercel → Environment Variables: VITE_API_BASE_URL=https://ваш-туннель (без /api)",
-  "Vercel → Redeploy (VITE_* задаются при сборке)",
-  "На ПК в backend/.env: CORS_ORIGINS=https://ваш-app.vercel.app",
+  "Вариант A: вставить URL туннеля выше и нажать Connect (без redeploy)",
+  "Вариант B: Vercel → BACKEND_URL=https://туннель (runtime, без /api) + кнопка Use Vercel proxy",
+  "Вариант C: VITE_API_BASE_URL + Redeploy (зашивается при сборке)",
+  "На ПК: CORS_ORIGINS=https://ваш-app.vercel.app в backend/.env",
 ];
 
 export function formatKernelApiError(message: string, apiPath?: string): string {

@@ -1,7 +1,21 @@
-const { test } = require("node:test");
+"use strict";
+
+const { test, before, after } = require("node:test");
 const assert = require("node:assert/strict");
 
-const handler = require("../../api/capabilities");
+const pcHandler = require("../../api/pc/[...path]");
+const { backendOrigin } = require("../../api/_proxy-backend");
+
+const ORIGINAL_BACKEND = process.env.BACKEND_URL;
+
+before(() => {
+  delete process.env.BACKEND_URL;
+});
+
+after(() => {
+  if (ORIGINAL_BACKEND === undefined) delete process.env.BACKEND_URL;
+  else process.env.BACKEND_URL = ORIGINAL_BACKEND;
+});
 
 function mockRes() {
   const headers = {};
@@ -16,27 +30,23 @@ function mockRes() {
       this.statusCode = code;
       return this;
     },
-    json(payload) {
+    end(payload) {
       this.body = payload;
     },
-    end() {},
   };
 }
 
-test("GET /api/capabilities returns expected shape", async () => {
+test("GET /api/pc/capabilities returns 503 when BACKEND_URL unset", async () => {
   const res = mockRes();
-  await handler({ method: "GET" }, res);
-  assert.equal(res.statusCode, 200);
-  assert.equal(res.body.policyGate, true);
-  assert.equal(res.body.observability, true);
-  assert.equal(typeof res.body.memoryIndex, "boolean");
-  assert.equal(typeof res.body.orchestrator, "boolean");
-  assert.equal(typeof res.body.dailyTasks, "boolean");
+  await pcHandler(
+    { method: "GET", url: "https://local/api/pc/capabilities", headers: {} },
+    res,
+  );
+  assert.equal(res.statusCode, 503);
+  const body = JSON.parse(String(res.body));
+  assert.match(body.detail, /BACKEND_URL/i);
 });
 
-test("OPTIONS returns 204 with CORS", async () => {
-  const res = mockRes();
-  await handler({ method: "OPTIONS" }, res);
-  assert.equal(res.statusCode, 204);
-  assert.equal(res.headers["Access-Control-Allow-Origin"], "*");
+test("backendOrigin is empty without env", () => {
+  assert.equal(backendOrigin(), "");
 });

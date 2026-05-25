@@ -87,6 +87,18 @@ VITE_API_BASE_URL=https://abc123.ngrok-free.app
 
 `VITE_API_BASE_URL` is baked in at **build** time — redeploy after changing it.
 
+### 4b. Vercel — runtime proxy (no redeploy when ngrok URL changes)
+
+Alternatively, leave `VITE_API_BASE_URL` unset and set a **runtime** variable:
+
+```text
+BACKEND_URL=https://abc123.ngrok-free.app
+```
+
+The UI calls `/api/pc/*` on Vercel; serverless forwards to your PC. Update `BACKEND_URL` when the tunnel URL changes — **no frontend redeploy**.
+
+On the **Workspace** gate, click **Use Vercel proxy** after `BACKEND_URL` is set, or paste the tunnel URL and click **Connect** (saved in the browser).
+
 ### 5. Smoke test
 
 1. Open your Vercel app → **Server Capabilities** panel should show all toggles on and **PC backend · …**.
@@ -156,7 +168,7 @@ Contents read/write on the target repo so the browser editor can save
 | Web-send | Yes, confirm required | Yes, confirm + research pipeline |
 | Hermes subprocess | **No** | Yes |
 | Browser driver | **No** | Yes |
-| Tasks / Memory / Research panels | **No** (API stubs missing) | Yes |
+| Tasks / Memory / Research / Workspace | **No** (use `BACKEND_URL` proxy or `VITE_API_BASE_URL`) | Yes |
 | AGENTS.md / playbooks via GitHub | Yes, gated writes | Yes, local filesystem |
 | Whitelisted commands | 3 cloud stubs | Full Pi whitelist |
 

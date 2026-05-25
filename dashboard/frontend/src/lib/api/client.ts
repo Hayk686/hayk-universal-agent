@@ -1,27 +1,23 @@
 import { formatKernelApiError } from "../kernel-backend";
+import { resolveApiBase, toFetchPath } from "../api-base";
+
+export {
+  clearApiBaseOverride,
+  getApiBaseOverride,
+  setApiBaseOverride,
+  setPcProxy,
+  usePcProxy,
+} from "../api-base";
 
 /**
  * Low-level HTTP helpers — API origin resolution:
- * 1) VITE_API_BASE_URL
- * 2) VITE_API_BASE
- * 3) "" (same origin; Vite dev server proxies /api and /health to localhost:8080)
- *
- * The origin must be the FastAPI root (no trailing /api). A trailing /api in env is stripped
- * so requests stay as /api/status, not /api/api/status.
+ * 1) localStorage override (Workspace / Settings)
+ * 2) VITE_API_BASE_URL
+ * 3) "" (same origin; Vite proxies /api → :8080, Vercel may use /api/pc/* proxy)
  */
 
 export function apiBase(): string {
-  let base = String(
-    import.meta.env.VITE_API_BASE_URL ??
-      import.meta.env.VITE_API_BASE ??
-      "",
-  ).replace(/\/$/, "");
-  // Paths in this app already include `/api/...` and `/health`. If env mistakenly uses
-  // `http://host:8080/api`, calls would become `/api/api/status` (404).
-  if (base.endsWith("/api")) {
-    base = base.slice(0, -4).replace(/\/$/, "");
-  }
-  return base;
+  return resolveApiBase();
 }
 
 /** When true, the app uses mock payloads instead of calling the FastAPI server. */
@@ -60,8 +56,9 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
   for (const [key, value] of Object.entries(extra)) {
     if (!headers.has(key)) headers.set(key, value);
   }
+  const fetchPath = toFetchPath(p);
   try {
-    return await fetch(`${apiBase()}${p}`, { ...init, headers });
+    return await fetch(`${apiBase()}${fetchPath}`, { ...init, headers });
   } catch {
     throw new Error(unreachableBackendMessage());
   }
