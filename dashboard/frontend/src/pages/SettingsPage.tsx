@@ -44,7 +44,7 @@ function SectionRow({
   const Chevron = open ? ChevronDown : ChevronRight;
 
   return (
-    <Card className="overflow-hidden rounded-[1rem] border-border/60 bg-card/65 shadow-[var(--shadow-soft)] backdrop-blur-xl">
+    <Card className="h-fit w-full self-start overflow-hidden rounded-[1rem] border-border/60 bg-card/65 shadow-[var(--shadow-soft)] backdrop-blur-xl">
       <button
         type="button"
         className="flex w-full items-center gap-4 px-4 py-4 text-left transition hover:bg-accent/10"
@@ -324,7 +324,7 @@ export function SettingsPage() {
         </div>
       </div>
 
-      <section className="grid gap-4 lg:grid-cols-2">
+      <section className="grid items-start gap-4 lg:grid-cols-2">
         {sections.map((section) => (
           <SectionRow
             key={section.id}
