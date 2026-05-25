@@ -1,11 +1,8 @@
 const { callOpenRouter, cors, json, readBody } = require("../_openrouter");
+const { enforcePolicy } = require("../lib/policy-enforce");
+const { EXEC_WHITELIST } = require("../lib/policy-gate");
 
-const commands = [
-  "hermes status",
-  "hermes doctor",
-  'hermes -z "Say exactly: OK"',
-];
-const WHITELIST = new Set(commands);
+const commands = [...EXEC_WHITELIST];
 
 function routeName(req) {
   const pathname = new URL(req.url || "/", "https://local.invalid").pathname;
@@ -18,7 +15,7 @@ async function runCloudCommand(command) {
       "Hayk Universal Agent: Vercel cloud mode",
       "Runtime: serverless functions",
       "Hermes subprocess: unavailable on Vercel",
-      "Chat: /api/chat/* via OpenRouter",
+      "Chat: /api/chat/* via OpenRouter (PolicyGate enabled)",
       "Workspace docs: GitHub Contents API",
     ].join("\n");
   }
@@ -33,6 +30,7 @@ async function runCloudCommand(command) {
       ["GITHUB_BRANCH", Boolean(process.env.GITHUB_BRANCH)],
       ["AGENT_WORKHORSE_MODEL", Boolean(process.env.AGENT_WORKHORSE_MODEL)],
       ["AGENT_WEB_MODEL", Boolean(process.env.AGENT_WEB_MODEL)],
+      ["POLICY_HMAC_SECRET", Boolean(process.env.POLICY_HMAC_SECRET)],
       ["VITE_USE_MOCKS", "checked at frontend build time"],
     ];
     return checks
@@ -58,8 +56,21 @@ module.exports = async function handler(req, res) {
     return json(res, 404, { detail: "Command route not found" });
   }
 
-  const command = String(readBody(req).command || "").trim();
-  if (!WHITELIST.has(command)) {
+  const body = readBody(req);
+  const command = String(body.command || "").trim();
+  const action = `exec ${command}`;
+  const gate = enforcePolicy({
+    req,
+    res,
+    json,
+    action,
+    context: { endpoint: "/api/commands/run", kind: "exec", command },
+    confirmationToken:
+      typeof body.policyConfirmationToken === "string" ? body.policyConfirmationToken.trim() : null,
+  });
+  if (!gate.allowed) return;
+
+  if (!EXEC_WHITELIST.has(command)) {
     return json(res, 400, { detail: "Command is not in the whitelist" });
   }
   try {

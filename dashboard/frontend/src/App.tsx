@@ -7,6 +7,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 const HermesDashboardPage = lazy(() =>
   import("./pages/HermesDashboardPage").then((m) => ({ default: m.HermesDashboardPage })),
 );
+const WorkspacePage = lazy(() =>
+  import("./pages/WorkspacePage").then((m) => ({ default: m.WorkspacePage })),
+);
 const ChatPage = lazy(() =>
   import("./pages/ChatPage").then((m) => ({ default: m.ChatPage })),
 );
@@ -44,6 +47,14 @@ export default function App() {
               element={
                 <Suspense fallback={<DashboardShellSkeleton />}>
                   <HermesDashboardPage />
+                </Suspense>
+              }
+            />
+            <Route
+              path="/workspace"
+              element={
+                <Suspense fallback={<DashboardShellSkeleton />}>
+                  <WorkspacePage />
                 </Suspense>
               }
             />

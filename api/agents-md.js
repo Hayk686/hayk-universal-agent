@@ -1,6 +1,7 @@
-const { cors, json } = require("./_openrouter");
+const { cors, json, readBody } = require("./_openrouter");
 const { getContentFile, putContentFile } = require("./_github");
 const { readText } = require("./_repo");
+const { enforcePolicy } = require("./lib/policy-enforce");
 
 module.exports = async function handler(req, res) {
   if (req.method === "OPTIONS") {
@@ -29,10 +30,30 @@ module.exports = async function handler(req, res) {
   }
   if (req.method === "PUT") {
     try {
-      const content = typeof req.body?.content === "string" ? req.body.content : "";
+      const body = readBody(req);
+      const content = typeof body.content === "string" ? body.content : "";
       if (!content.trim()) {
         return json(res, 422, { detail: "content must not be empty" });
       }
+      const action = "write AGENTS.md";
+      const gate = enforcePolicy({
+        req,
+        res,
+        json,
+        action,
+        context: {
+          endpoint: "/api/agents-md",
+          method: "PUT",
+          kind: "write",
+          path: "AGENTS.md",
+        },
+        confirmationToken:
+          typeof body.policyConfirmationToken === "string"
+            ? body.policyConfirmationToken.trim()
+            : null,
+      });
+      if (!gate.allowed) return;
+
       await putContentFile(
         "agent-workspace/AGENTS.md",
         content,

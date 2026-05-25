@@ -12,5 +12,6 @@ export type NavRoute = {
 export const NAV_ROUTES: NavRoute[] = [
   { id: "chat", path: "/chat", label: "Chat", end: true },
   { id: "dashboard", path: "/", label: "Status", end: true },
+  { id: "workspace", path: "/workspace", label: "Workspace", end: true },
   { id: "settings", path: "/settings", label: "Settings", end: true },
 ];

@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 import app.api as api_module
 from app.main import app
+from app.policy.confirmation import issue_confirmation_token
 
 
 @pytest.fixture(autouse=True)
@@ -56,6 +57,7 @@ def test_browser_analyze_uses_free_model_without_shell(workspace, monkeypatch) -
         "create_subprocess_exec",
         fake_create_subprocess_exec,
     )
+    token = issue_confirmation_token("browser analyze")
     client = _client_for_workspace(workspace)
     r = client.post(
         "/api/browser/analyze",
@@ -64,6 +66,7 @@ def test_browser_analyze_uses_free_model_without_shell(workspace, monkeypatch) -
             "title": "Task",
             "visibleText": "Question: choose the best category\nA\nB",
             "mode": "workhorse",
+            "policyConfirmationToken": token,
         },
     )
     assert r.status_code == 200
@@ -95,10 +98,15 @@ def test_browser_analyze_rejects_paid_model_by_default(workspace, monkeypatch) -
         raise AssertionError("subprocess should not run")
 
     monkeypatch.setattr(api_module.asyncio, "create_subprocess_exec", _no_exec)
+    token = issue_confirmation_token("browser analyze")
     client = _client_for_workspace(workspace)
     r = client.post(
         "/api/browser/analyze",
-        json={"visibleText": "Question text", "mode": "workhorse"},
+        json={
+            "visibleText": "Question text",
+            "mode": "workhorse",
+            "policyConfirmationToken": token,
+        },
     )
     assert r.status_code == 500
     assert "must be a free model" in r.json()["detail"]

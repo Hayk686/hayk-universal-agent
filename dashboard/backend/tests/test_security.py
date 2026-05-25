@@ -138,7 +138,8 @@ def test_playbook_save_creates_backup(workspace: Path) -> None:
 def test_command_runner_rejects_arbitrary(workspace: Path) -> None:
     client = _client_for_workspace(workspace)
     r = client.post("/api/commands/run", json={"command": "echo hacked"})
-    assert r.status_code == 400
+    assert r.status_code == 403
+    assert "whitelist" in r.json()["detail"]["policy"]["reason"]
 
 
 def test_status_venv_python_symlink_target_outside_workspace(

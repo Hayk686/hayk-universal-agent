@@ -111,6 +111,7 @@ export function ChatPage() {
           onChatModeChange={chat.setChatMode}
         />
       </div>
+      {chat.policyConfirmModal}
     </div>
   );
 }

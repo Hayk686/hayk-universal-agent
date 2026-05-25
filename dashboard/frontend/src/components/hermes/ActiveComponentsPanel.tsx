@@ -1,92 +1,136 @@
 import { useEffect, useState } from "react";
-import { Brain, GitBranch, Wrench } from "lucide-react";
+import { Brain, GitBranch, Shield, Wrench, Layers, Eye, Search, Globe, ListTodo, Archive } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
+import { api } from "@/lib/api";
+import type { CapabilitiesResponse } from "@/types/api-contract";
 
-const LS_COMPONENTS = "hermes-active-components-v1";
-
-type ComponentKey = "memoryIndex" | "contextRouter" | "toolExecutor";
+type CapabilityKey = keyof CapabilitiesResponse;
 
 type ComponentDef = {
-  key: ComponentKey;
+  key: CapabilityKey;
   label: string;
   description: string;
   icon: React.ComponentType<{ className?: string }>;
-  defaultOn: boolean;
 };
 
-const COMPONENTS: ComponentDef[] = [
+const CAPABILITIES: ComponentDef[] = [
   {
-    key: "memoryIndex",
-    label: "Memory Index",
-    description: "Indexes conversation memory for long-context recall",
-    icon: Brain,
-    defaultOn: true,
+    key: "policyGate",
+    label: "Policy Gate",
+    description: "Server-side action classification and confirmation",
+    icon: Shield,
+  },
+  {
+    key: "observability",
+    label: "Observability",
+    description: "Structured run_id events across API and Hermes",
+    icon: Eye,
+  },
+  {
+    key: "orchestrator",
+    label: "Orchestrator",
+    description: "Workflow planning and mode routing (fast/web/session)",
+    icon: Layers,
   },
   {
     key: "contextRouter",
     label: "Context Router",
-    description: "Routes prompts to the best context window strategy",
+    description: "Playbook-based task triage on the server",
     icon: GitBranch,
-    defaultOn: false,
+  },
+  {
+    key: "memoryIndex",
+    label: "Memory Index",
+    description: "Active context and Hermes MEMORY.md indexing",
+    icon: Brain,
+  },
+  {
+    key: "artifactsIndex",
+    label: "Artifacts Index",
+    description: "Run-scoped workspace artifact catalog",
+    icon: Archive,
   },
   {
     key: "toolExecutor",
     label: "Tool Executor",
-    description: "Runs whitelisted local tools during agent turns",
+    description: "Whitelisted local tools during agent turns",
     icon: Wrench,
-    defaultOn: false,
+  },
+  {
+    key: "researchPipeline",
+    label: "Research Pipeline",
+    description: "Gated web research with citations",
+    icon: Search,
+  },
+  {
+    key: "browserDriver",
+    label: "Browser Driver",
+    description: "Gated browser automation adapter",
+    icon: Globe,
+  },
+  {
+    key: "dailyTasks",
+    label: "Daily Tasks",
+    description: "Hermes todo/kanban exposure in Hayk",
+    icon: ListTodo,
   },
 ];
 
-function readStored(): Record<ComponentKey, boolean> {
-  try {
-    const raw = localStorage.getItem(LS_COMPONENTS);
-    if (!raw) {
-      return {
-        memoryIndex: true,
-        contextRouter: false,
-        toolExecutor: false,
-      };
-    }
-    const p = JSON.parse(raw) as Partial<Record<ComponentKey, boolean>>;
-    return {
-      memoryIndex: p.memoryIndex ?? true,
-      contextRouter: p.contextRouter ?? false,
-      toolExecutor: p.toolExecutor ?? false,
-    };
-  } catch {
-    return {
-      memoryIndex: true,
-      contextRouter: false,
-      toolExecutor: false,
-    };
-  }
-}
-
 export function ActiveComponentsPanel() {
-  const [state, setState] = useState(readStored);
+  const [capabilities, setCapabilities] = useState<CapabilitiesResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [taskCount, setTaskCount] = useState<number | null>(null);
+  const [artifactCount, setArtifactCount] = useState<number | null>(null);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(LS_COMPONENTS, JSON.stringify(state));
-    } catch {
-      /* ignore */
-    }
-  }, [state]);
-
-  function toggle(key: ComponentKey) {
-    setState((s) => ({ ...s, [key]: !s[key] }));
-  }
+    let cancelled = false;
+    (async () => {
+      try {
+        const [caps, tasks, artifacts] = await Promise.all([
+          api.getCapabilities(),
+          api.listTasks().catch(() => ({ tasks: [] })),
+          api.listArtifacts().catch(() => ({ artifacts: [] })),
+        ]);
+        if (!cancelled) {
+          setCapabilities(caps);
+          setTaskCount(tasks.tasks.length);
+          setArtifactCount(artifacts.artifacts.length);
+          setError(null);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : String(e));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <div className="shrink-0 rounded-lg border border-border/50 bg-card/40 p-2">
       <h3 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-        Active Components
+        Server Capabilities
       </h3>
+      {(taskCount !== null || artifactCount !== null) && (
+        <p className="mb-1.5 text-[10px] text-muted-foreground">
+          {taskCount !== null ? `${taskCount} task${taskCount === 1 ? "" : "s"}` : null}
+          {taskCount !== null && artifactCount !== null ? " · " : null}
+          {artifactCount !== null
+            ? `${artifactCount} artifact${artifactCount === 1 ? "" : "s"}`
+            : null}
+        </p>
+      )}
+      {error ? (
+        <p className="mb-1 text-[10px] text-destructive" title={error}>
+          Could not load capabilities
+        </p>
+      ) : null}
       <ul className="space-y-1">
-        {COMPONENTS.map(({ key, label, description, icon: Icon }) => {
-          const on = state[key];
+        {CAPABILITIES.map(({ key, label, description, icon: Icon }) => {
+          const on = capabilities?.[key] ?? false;
           return (
             <li
               key={key}
@@ -104,9 +148,9 @@ export function ActiveComponentsPanel() {
               <p className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">{label}</p>
               <Switch
                 checked={on}
-                onCheckedChange={() => toggle(key)}
-                aria-label={label}
-                className="scale-90"
+                disabled
+                aria-label={`${label} (server)`}
+                className="scale-90 opacity-80"
               />
             </li>
           );
@@ -114,8 +158,4 @@ export function ActiveComponentsPanel() {
       </ul>
     </div>
   );
-}
-
-export function getActiveComponents(): Record<ComponentKey, boolean> {
-  return readStored();
 }

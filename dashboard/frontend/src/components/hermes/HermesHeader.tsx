@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { Activity, Plus, User } from "lucide-react";
+import { Activity, LayoutGrid, Plus, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { HermesLogo } from "./HermesLogo";
@@ -109,6 +109,14 @@ export function HermesHeader({
             )}
           />
         </div>
+        <Link
+          to="/workspace"
+          className="hidden h-7 items-center gap-1 rounded-md border border-border/60 px-2 text-xs text-muted-foreground transition hover:border-primary/40 hover:text-foreground sm:inline-flex"
+          title="Workspace panels"
+        >
+          <LayoutGrid className="h-3.5 w-3.5" />
+          Workspace
+        </Link>
         <Button
           type="button"
           variant="outline"

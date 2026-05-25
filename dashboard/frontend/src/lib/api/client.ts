@@ -102,6 +102,14 @@ export async function postJson(
   });
 }
 
+export async function patchJson(path: string, data: unknown): Promise<Response> {
+  return apiFetch(path, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
 export async function del(path: string): Promise<Response> {
   return apiFetch(path, { method: "DELETE" });
 }

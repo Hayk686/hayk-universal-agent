@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-const DASHBOARD_PATHS = new Set(["/", "/chat"]);
+const DASHBOARD_PATHS = new Set(["/", "/chat", "/workspace"]);
 
 export function Layout() {
   const location = useLocation();

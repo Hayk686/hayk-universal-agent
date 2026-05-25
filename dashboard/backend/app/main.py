@@ -5,8 +5,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api import router as api_router
+from app.middleware.policy_observability import PolicyObservabilityMiddleware
 
 app = FastAPI(title="Hayk Universal Agent Dashboard API", version="0.1.0")
+app.add_middleware(PolicyObservabilityMiddleware)
 
 
 @app.exception_handler(PermissionError)

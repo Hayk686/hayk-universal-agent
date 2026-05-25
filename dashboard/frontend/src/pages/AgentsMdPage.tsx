@@ -6,8 +6,10 @@ import { SectionHeader } from "@/components/section-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { api, saveMarkdownFromResponse } from "@/lib/api";
+import { usePolicyConfirmation } from "@/hooks/usePolicyConfirmation";
 
 export function AgentsMdPage() {
+  const { requestWithConfirmation, policyConfirmModal } = usePolicyConfirmation();
   const [text, setText] = useState("");
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -31,13 +33,15 @@ export function AgentsMdPage() {
     setSavedMsg(null);
     setErr(null);
     try {
-      const res = await api.saveAgentsMd({ content: text });
-      const j = await saveMarkdownFromResponse(res);
-      setSavedMsg(
-        j.backup
-          ? `Saved. Backup: ${j.backup}`
-          : "Saved (new file, no previous backup).",
-      );
+      await requestWithConfirmation(async (token) => {
+        const res = await api.saveAgentsMd({ content: text }, token ? { policyConfirmationToken: token } : undefined);
+        const j = await saveMarkdownFromResponse(res);
+        setSavedMsg(
+          j.backup
+            ? `Saved. Backup: ${j.backup}`
+            : "Saved (new file, no previous backup).",
+        );
+      });
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     }
@@ -60,6 +64,7 @@ export function AgentsMdPage() {
         </Button>
       }
     >
+      {policyConfirmModal}
       <div className="space-y-4 max-w-6xl">
         <SectionHeader
           icon={FileEdit}

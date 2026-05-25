@@ -1,8 +1,14 @@
 const { callOpenRouter, cors, json, readBody, validateMessage } = require("../_openrouter");
+const { enforceChatMessagePolicy, enforcePolicy } = require("../lib/policy-enforce");
 
 function routeName(req) {
   const pathname = new URL(req.url || "/", "https://local.invalid").pathname;
   return pathname.replace(/^\/api\/chat\/?/, "").replace(/\/$/, "");
+}
+
+function policyToken(body) {
+  const token = body?.policyConfirmationToken;
+  return typeof token === "string" && token.trim() ? token.trim() : null;
 }
 
 function errorJson(res, route, error) {
@@ -19,8 +25,26 @@ function errorJson(res, route, error) {
 }
 
 async function send(req, res, { web = false } = {}) {
+  const body = readBody(req);
+  const message = validateMessage(body);
+  const endpoint = web ? "/api/chat/web-send" : "/api/chat/send";
+
+  if (web) {
+    const gate = enforcePolicy({
+      req,
+      res,
+      json,
+      action: "network web-send",
+      context: { endpoint, kind: "network" },
+      confirmationToken: policyToken(body),
+    });
+    if (!gate.allowed) return;
+  } else {
+    const gate = enforceChatMessagePolicy({ req, res, json, message, endpoint });
+    if (!gate.allowed) return;
+  }
+
   const started = Date.now();
-  const message = validateMessage(readBody(req));
   const result = await callOpenRouter(message, { web });
   return json(res, 200, {
     response: `${result.text.trim()}\n`,
@@ -31,9 +55,18 @@ async function send(req, res, { web = false } = {}) {
 }
 
 async function sessionSend(req, res) {
-  const started = Date.now();
   const body = readBody(req);
   const message = validateMessage(body);
+  const gate = enforceChatMessagePolicy({
+    req,
+    res,
+    json,
+    message,
+    endpoint: "/api/chat/session-send",
+  });
+  if (!gate.allowed) return;
+
+  const started = Date.now();
   const result = await callOpenRouter(message);
   const sessionId = typeof body.sessionId === "string" && body.sessionId.trim()
     ? body.sessionId.trim()

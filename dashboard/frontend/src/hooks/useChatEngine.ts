@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
+import {
+  PolicyConfirmationCancelledError,
+  usePolicyConfirmation,
+} from "@/hooks/usePolicyConfirmation";
 import type { ChatSendResponse, ChatSessionSendResponse, ChatWebSendResponse, StatusResponse } from "@/types/api-contract";
 
 const LS_SESSION = "hayk-agent-chat-session-id";
@@ -148,6 +152,7 @@ export function buildChartData(buckets: ActivityBucket[]) {
 }
 
 export function useChatEngine() {
+  const { requestWithConfirmation, policyConfirmModal } = usePolicyConfirmation();
   const [input, setInput] = useState("");
   const [chatMode, setChatMode] = useState<ChatMode>(readChatMode);
   const [sessionId, setSessionId] = useState<string | null>(readStoredSession);
@@ -309,16 +314,32 @@ export function useChatEngine() {
     const sid = sessionId;
     try {
       let data: ChatSendResponse | ChatSessionSendResponse | ChatWebSendResponse;
+      const requestInit = { signal: ac.signal };
       if (modeNow === "fast") {
-        data = await api.sendChatMessage(message, { signal: ac.signal });
+        data = await requestWithConfirmation((token) =>
+          api.sendChatMessage(message, {
+            ...requestInit,
+            policyConfirmationToken: token,
+          }),
+        );
         appendExchange(message, data);
         setInput("");
       } else if (modeNow === "web") {
-        data = await api.sendWebChatMessage(message, { signal: ac.signal });
+        data = await requestWithConfirmation((token) =>
+          api.sendWebChatMessage(message, {
+            ...requestInit,
+            policyConfirmationToken: token,
+          }),
+        );
         appendExchange(message, data);
         setInput("");
       } else {
-        data = await api.sendSessionChatMessage(message, sid, { signal: ac.signal });
+        data = await requestWithConfirmation((token) =>
+          api.sendSessionChatMessage(message, sid, {
+            ...requestInit,
+            policyConfirmationToken: token,
+          }),
+        );
         applySessionResult(data);
         appendExchange(message, data);
         setInput("");
@@ -346,6 +367,8 @@ export function useChatEngine() {
             "Request cancelled in the browser. Hermes may still be running on the server until it finishes or times out.",
           );
         }
+      } else if (e instanceof PolicyConfirmationCancelledError) {
+        setCancelNote("Action cancelled — policy confirmation was not granted.");
       } else {
         setHttpError(e instanceof Error ? e.message : String(e));
         bumpActivity(true);
@@ -501,6 +524,7 @@ export function useChatEngine() {
     loadRecentSessions,
     loadSessionTranscript,
     deleteRecentSession,
+    policyConfirmModal,
   };
 }
 

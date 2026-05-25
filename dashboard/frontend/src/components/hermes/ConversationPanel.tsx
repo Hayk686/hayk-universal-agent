@@ -158,6 +158,7 @@ export function ConversationPanel({ chat }: { chat: ChatEngine }) {
           />
         </div>
       </div>
+      {chat.policyConfirmModal}
     </section>
   );
 }

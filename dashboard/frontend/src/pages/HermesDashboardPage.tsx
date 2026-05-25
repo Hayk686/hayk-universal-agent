@@ -2,7 +2,6 @@ import { HermesHeader } from "@/components/hermes/HermesHeader";
 import { SystemOverviewPanel } from "@/components/hermes/SystemOverviewPanel";
 import { ConversationPanel } from "@/components/hermes/ConversationPanel";
 import { ActiveComponentsPanel } from "@/components/hermes/ActiveComponentsPanel";
-import { RecentLogsPanel } from "@/components/hermes/RecentLogsPanel";
 import { useChatEngine } from "@/hooks/useChatEngine";
 import { fetchStatus } from "@/lib/api";
 import { useEffect, useState } from "react";
@@ -41,9 +40,8 @@ export function HermesDashboardPage() {
       <div className="hermes-dashboard-grid min-h-0 flex-1 overflow-hidden p-2 sm:p-3">
         <SystemOverviewPanel metrics={chat.metrics} chartData={chat.chartData} />
         <ConversationPanel chat={chat} />
-        <aside className="hermes-panel hermes-panel-right flex min-h-0 flex-col gap-2 overflow-hidden">
+        <aside className="hermes-panel hermes-panel-right flex min-h-0 flex-col overflow-hidden">
           <ActiveComponentsPanel />
-          <RecentLogsPanel cliBusy={chat.loading} />
         </aside>
       </div>
     </div>

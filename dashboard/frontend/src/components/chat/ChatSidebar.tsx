@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import {
   LayoutDashboard,
+  LayoutGrid,
   MessageSquarePlus,
   Moon,
   PanelLeftClose,
@@ -160,6 +161,17 @@ export function ChatSidebar({
       )}
 
       <div className="mt-auto space-y-1 border-t border-[var(--chat-sidebar-border)] p-2">
+        <Link
+          to="/workspace"
+          className={cn(
+            "flex h-9 items-center gap-2 rounded-lg px-2 text-[13px] text-[var(--chat-sidebar-muted)] transition hover:bg-[var(--chat-hover)] hover:text-[var(--chat-sidebar-fg)]",
+            collapsed && "justify-center px-0",
+          )}
+          onClick={onMobileClose}
+        >
+          <LayoutGrid className="h-4 w-4 shrink-0" />
+          {!collapsed && <span>Workspace</span>}
+        </Link>
         <Link
           to="/"
           className={cn(

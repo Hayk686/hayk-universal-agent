@@ -10,11 +10,35 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel, Field, field_validator
 
+from app.artifacts.index import FileArtifactIndex
 from app.config import AGENT_NAME, get_chat_timeout_seconds, get_workspace_root
+from app.memory.models import ActiveContext
+from app.memory.store import FileMemoryStore
+from app.memory.summarizer import build_memory_summary
+from app.observability.events import emit_event
+from app.memory.lifecycle import on_workflow_completed
+from app.tasks.lifecycle import create_task_for_workflow, mark_linked_task_done
+from app.tasks.models import TaskCreate, TaskPriority, TaskStatus, TaskUpdate
+from app.tasks.store import FileTasksStore, snooze_until_from_minutes
+from app.orchestration.models import OrchestratorMode, StepStatus
+from app.orchestration.orchestrator import Orchestrator, WorkflowNotFoundError, WorkflowPausedError
+from app.orchestration.router import route_task
+from app.orchestration.workflow_store import FileWorkflowStore
+from app.policy.confirmation import verify_confirmation_token
+from app.policy.gate import PolicyDecision, classify_action
+from app.research.models import ResearchQuery
+from app.research.pipeline import get_cached_result, get_research_pipeline
+from app.browser.driver import (
+    browser_policy_action,
+    get_cached_action,
+    list_session_profiles,
+    run_browser_action,
+)
+from app.browser.models import BrowserActionRequest, BrowserActionType
 from app.safety import is_whitelisted_command, list_whitelisted_commands, safe_join
 
 router = APIRouter()
@@ -42,8 +66,839 @@ def workspace_dep() -> Path:
     return get_workspace_root()
 
 
+def _get_orchestrator(ws: Path) -> Orchestrator:
+    return Orchestrator(FileWorkflowStore(root=ws))
+
+
+def _get_memory_store(ws: Path) -> FileMemoryStore:
+    return FileMemoryStore(root=ws)
+
+
+def _get_artifact_index(ws: Path) -> FileArtifactIndex:
+    return FileArtifactIndex(root=ws)
+
+
+def _get_tasks_store(ws: Path) -> FileTasksStore:
+    return FileTasksStore(root=ws)
+
+
+def _emit_task_event(
+    *,
+    run_id: str,
+    decision: str,
+    task_id: str,
+    outcome: str,
+    extra: dict[str, Any] | None = None,
+) -> None:
+    emit_event(
+        run_id=run_id,
+        layer="tasks",
+        decision=decision,
+        reason=f"task {task_id}",
+        inputs_redacted={"taskId": task_id, "path": ".hermes/tasks/tasks.json", **(extra or {})},
+        outcome=outcome,
+    )
+
+
+def _hermes_subprocess_env(run_id: str) -> dict[str, str]:
+    env = {**os.environ, "LC_ALL": "C.UTF-8"}
+    if run_id and run_id != "unknown":
+        env["HERMES_RUN_ID"] = run_id
+    return env
+
+
+def _emit_hermes_spawn(*, run_id: str, argv: list[str], endpoint: str) -> None:
+    emit_event(
+        run_id=run_id,
+        layer="orchestrator",
+        decision="hermes_spawn",
+        reason=f"{endpoint} argv0={argv[0] if argv else 'unknown'}",
+        inputs_redacted={"endpoint": endpoint, "argc": len(argv)},
+        outcome="spawned",
+    )
+
+
+def _emit_route_decision(*, run_id: str, message: str, endpoint: str) -> OrchestratorMode:
+    route = route_task(message)
+    emit_event(
+        run_id=run_id,
+        layer="orchestrator",
+        decision=route.mode.value,
+        reason=route.reason,
+        inputs_redacted={
+            "endpoint": endpoint,
+            "playbookMode": route.playbook_mode,
+            "confidence": route.confidence,
+        },
+        outcome="routed",
+    )
+    return route.mode
+
+
 class SaveBody(BaseModel):
     content: str = Field(..., description="UTF-8 markdown content")
+
+
+def _run_id_from_request(request: Request) -> str:
+    return str(getattr(request.state, "run_id", "") or "unknown")
+
+
+def _emit_policy_event(
+    *,
+    run_id: str,
+    decision: PolicyDecision,
+    action: str,
+    outcome: str,
+    extra: dict[str, Any] | None = None,
+) -> None:
+    emit_event(
+        run_id=run_id,
+        layer="policy",
+        decision="allow" if decision.allowed else ("confirm" if decision.requires_confirmation else "deny"),
+        reason=decision.reason,
+        inputs_redacted={"action": action, **(extra or {})},
+        outcome=outcome,
+    )
+
+
+def _policy_http_detail(decision: PolicyDecision, action: str) -> dict[str, Any]:
+    return {
+        "detail": decision.reason,
+        "policy": decision.to_dict(),
+        "action": action,
+    }
+
+
+def _enforce_policy(
+    *,
+    request: Request,
+    action: str,
+    context: dict[str, Any],
+    confirmation_token: str | None = None,
+) -> PolicyDecision:
+    """Raise HTTP 403 when action is denied or confirmation is missing/invalid."""
+    run_id = _run_id_from_request(request)
+    decision = classify_action(action, context=context)
+    _emit_policy_event(run_id=run_id, decision=decision, action=action, outcome="classified")
+
+    if decision.allowed:
+        _emit_policy_event(run_id=run_id, decision=decision, action=action, outcome="allowed")
+        return decision
+
+    if decision.requires_confirmation:
+        if confirmation_token:
+            ok, reason = verify_confirmation_token(confirmation_token, action)
+            if ok:
+                confirmed = PolicyDecision(
+                    allowed=True,
+                    risk=decision.risk,
+                    requires_confirmation=False,
+                    reason="confirmation token accepted",
+                    confirmation_token=None,
+                )
+                _emit_policy_event(
+                    run_id=run_id,
+                    decision=confirmed,
+                    action=action,
+                    outcome="confirmed",
+                )
+                return confirmed
+            _emit_policy_event(
+                run_id=run_id,
+                decision=decision,
+                action=action,
+                outcome=f"confirm_failed:{reason}",
+            )
+            raise HTTPException(
+                status_code=403,
+                detail={**_policy_http_detail(decision, action), "confirmError": reason},
+            )
+        _emit_policy_event(run_id=run_id, decision=decision, action=action, outcome="confirm_required")
+        raise HTTPException(status_code=403, detail=_policy_http_detail(decision, action))
+
+    _emit_policy_event(run_id=run_id, decision=decision, action=action, outcome="denied")
+    raise HTTPException(status_code=403, detail=_policy_http_detail(decision, action))
+
+
+class PolicyCheckBody(BaseModel):
+    action: str = Field(..., description="Action label, e.g. exec hermes status")
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
+class PolicyConfirmBody(BaseModel):
+    action: str
+    token: str
+
+
+@router.post("/policy/check")
+def policy_check(body: PolicyCheckBody, request: Request) -> dict[str, Any]:
+    run_id = _run_id_from_request(request)
+    decision = classify_action(body.action, context=body.context)
+    _emit_policy_event(
+        run_id=run_id,
+        decision=decision,
+        action=body.action,
+        outcome="check",
+        extra={"context": body.context},
+    )
+    return decision.to_dict()
+
+
+@router.post("/policy/confirm")
+def policy_confirm(body: PolicyConfirmBody, request: Request) -> dict[str, str]:
+    run_id = _run_id_from_request(request)
+    ok, reason = verify_confirmation_token(body.token, body.action)
+    emit_event(
+        run_id=run_id,
+        layer="policy",
+        decision="confirm" if ok else "deny",
+        reason=reason,
+        inputs_redacted={"action": body.action},
+        outcome="confirmed" if ok else "confirm_rejected",
+    )
+    if not ok:
+        raise HTTPException(status_code=400, detail=reason)
+    return {"ok": "true", "action": body.action}
+
+
+def _enforce_chat_message_policy(
+    *,
+    request: Request,
+    message: str,
+    endpoint: str,
+) -> None:
+    """Allow chat turns unless payment/hardline content is detected."""
+    action = "exec chat message"
+    decision = classify_action(
+        action,
+        context={"endpoint": endpoint, "kind": "exec", "command": message, "chat_message": True},
+    )
+    run_id = _run_id_from_request(request)
+    _emit_policy_event(run_id=run_id, decision=decision, action=action, outcome="chat_check")
+    if not decision.allowed:
+        raise HTTPException(status_code=403, detail=_policy_http_detail(decision, action))
+
+
+@router.get("/capabilities")
+def get_capabilities() -> dict[str, Any]:
+    """Server-side capability flags (not localStorage toggles)."""
+    return {
+        "policyGate": True,
+        "observability": True,
+        "memoryIndex": True,
+        "artifactsIndex": True,
+        "contextRouter": True,
+        "toolExecutor": True,
+        "researchPipeline": True,
+        "browserDriver": True,
+        "dailyTasks": True,
+        "orchestrator": True,
+    }
+
+
+class ActiveContextUpdateBody(BaseModel):
+    title: str = ""
+    summary: str = ""
+    keyPoints: list[str] = Field(default_factory=list)
+    recentWorkflowIds: list[str] = Field(default_factory=list)
+    recentRunIds: list[str] = Field(default_factory=list)
+    policyConfirmationToken: str | None = Field(
+        default=None,
+        description="Required when policy check returns requiresConfirmation",
+    )
+
+
+@router.get("/memory/active-context")
+def get_memory_active_context(ws: Path = Depends(workspace_dep)) -> dict[str, Any]:
+    store = _get_memory_store(ws)
+    return store.get_active_context().to_dict()
+
+
+@router.put("/memory/active-context")
+def put_memory_active_context(
+    body: ActiveContextUpdateBody,
+    request: Request,
+    ws: Path = Depends(workspace_dep),
+) -> dict[str, Any]:
+    action = "write memory active-context"
+    _enforce_policy(
+        request=request,
+        action=action,
+        context={
+            "kind": "write",
+            "path": ".hermes/memory/active-context.json",
+            "endpoint": "/api/memory/active-context",
+        },
+        confirmation_token=body.policyConfirmationToken,
+    )
+    ctx = ActiveContext(
+        title=body.title.strip(),
+        summary=body.summary.strip(),
+        key_points=[p.strip() for p in body.keyPoints if p.strip()],
+        recent_workflow_ids=[w.strip() for w in body.recentWorkflowIds if w.strip()],
+        recent_run_ids=[r.strip() for r in body.recentRunIds if r.strip()],
+    )
+    saved = _get_memory_store(ws).set_active_context(ctx)
+    run_id = _run_id_from_request(request)
+    emit_event(
+        run_id=run_id,
+        layer="memory",
+        decision="active_context_updated",
+        reason="active context saved",
+        inputs_redacted={"path": ".hermes/memory/active-context.json"},
+        outcome="saved",
+    )
+    return saved.to_dict()
+
+
+@router.get("/memory/summary")
+def get_memory_summary(ws: Path = Depends(workspace_dep)) -> dict[str, Any]:
+    store = _get_memory_store(ws)
+    active = store.get_active_context()
+    entries = store.list_entries()
+    orch = _get_orchestrator(ws)
+    workflows = orch.list_workflows()
+    recent = sorted(workflows, key=lambda w: w.updated_at, reverse=True)[:10]
+    summary = build_memory_summary(
+        active=active,
+        entries=entries,
+        recent_workflows=recent,
+    )
+    return summary.to_dict()
+
+
+@router.get("/artifacts")
+def list_artifacts(
+    run_id: str | None = None,
+    workflow_id: str | None = None,
+    ws: Path = Depends(workspace_dep),
+) -> dict[str, Any]:
+    idx = _get_artifact_index(ws)
+    if not idx.list_artifacts():
+        idx.scan_workspace()
+    records = idx.list_artifacts(run_id=run_id, workflow_id=workflow_id)
+    return {"artifacts": [r.to_dict() for r in records]}
+
+
+@router.get("/artifacts/{artifact_id}")
+def get_artifact(
+    artifact_id: str,
+    preview: bool = False,
+    ws: Path = Depends(workspace_dep),
+) -> dict[str, Any]:
+    idx = _get_artifact_index(ws)
+    rec = idx.get(artifact_id)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    out: dict[str, Any] = rec.to_dict()
+    if preview:
+        content = idx.read_preview(rec)
+        if content is not None:
+            out["contentPreview"] = content
+    return out
+
+
+class TaskCreateBody(BaseModel):
+    title: str = Field(..., description="Task title")
+    description: str = ""
+    priority: TaskPriority | None = None
+    dueAt: str | None = None
+    workflowId: str | None = None
+    runId: str | None = None
+
+
+class TaskUpdateBody(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    status: TaskStatus | None = None
+    priority: TaskPriority | None = None
+    dueAt: str | None = None
+
+
+class TaskSnoozeBody(BaseModel):
+    until: str | None = None
+    minutes: int | None = None
+
+
+@router.get("/tasks")
+def list_tasks(
+    status: TaskStatus | None = None,
+    due_before: str | None = None,
+    include_snoozed: bool = False,
+    ws: Path = Depends(workspace_dep),
+) -> dict[str, Any]:
+    store = _get_tasks_store(ws)
+    tasks = store.list_tasks(
+        status=status,
+        due_before=due_before,
+        include_snoozed=include_snoozed,
+    )
+    return {"tasks": [t.to_dict() for t in tasks]}
+
+
+@router.post("/tasks")
+def create_task(
+    body: TaskCreateBody,
+    request: Request,
+    ws: Path = Depends(workspace_dep),
+) -> dict[str, Any]:
+    title = body.title.strip()
+    if not title:
+        raise HTTPException(status_code=422, detail="title must not be empty")
+    _enforce_policy(
+        request=request,
+        action="write task create",
+        context={
+            "kind": "write",
+            "method": "POST",
+            "endpoint": "/api/tasks",
+            "path": ".hermes/tasks/tasks.json",
+        },
+    )
+    run_id = _run_id_from_request(request)
+    store = _get_tasks_store(ws)
+    task = store.create(
+        TaskCreate(
+            title=title,
+            description=body.description.strip(),
+            priority=body.priority,
+            due_at=body.dueAt,
+            workflow_id=body.workflowId,
+            run_id=body.runId or (run_id if run_id != "unknown" else None),
+        )
+    )
+    _emit_task_event(run_id=run_id, decision="create", task_id=task.id, outcome="created")
+    return task.to_dict()
+
+
+@router.get("/tasks/{task_id}")
+def get_task(task_id: str, ws: Path = Depends(workspace_dep)) -> dict[str, Any]:
+    store = _get_tasks_store(ws)
+    task = store.get(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return task.to_dict()
+
+
+@router.patch("/tasks/{task_id}")
+def update_task(
+    task_id: str,
+    body: TaskUpdateBody,
+    request: Request,
+    ws: Path = Depends(workspace_dep),
+) -> dict[str, Any]:
+    _enforce_policy(
+        request=request,
+        action="write task update",
+        context={
+            "kind": "write",
+            "method": "PATCH",
+            "endpoint": f"/api/tasks/{task_id}",
+            "path": ".hermes/tasks/tasks.json",
+        },
+    )
+    store = _get_tasks_store(ws)
+    try:
+        task = store.update(
+            task_id,
+            TaskUpdate(
+                title=body.title,
+                description=body.description,
+                status=body.status,
+                priority=body.priority,
+                due_at=body.dueAt,
+            ),
+        )
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Task not found") from None
+    run_id = _run_id_from_request(request)
+    _emit_task_event(run_id=run_id, decision="update", task_id=task_id, outcome="updated")
+    return task.to_dict()
+
+
+@router.post("/tasks/{task_id}/done")
+def done_task(
+    task_id: str,
+    request: Request,
+    ws: Path = Depends(workspace_dep),
+) -> dict[str, Any]:
+    _enforce_policy(
+        request=request,
+        action="write task done",
+        context={
+            "kind": "write",
+            "method": "PATCH",
+            "endpoint": f"/api/tasks/{task_id}/done",
+            "path": ".hermes/tasks/tasks.json",
+        },
+    )
+    store = _get_tasks_store(ws)
+    try:
+        task = store.mark_done(task_id)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Task not found") from None
+    run_id = _run_id_from_request(request)
+    _emit_task_event(run_id=run_id, decision="done", task_id=task_id, outcome="done")
+    return task.to_dict()
+
+
+@router.post("/tasks/{task_id}/snooze")
+def snooze_task(
+    task_id: str,
+    body: TaskSnoozeBody,
+    request: Request,
+    ws: Path = Depends(workspace_dep),
+) -> dict[str, Any]:
+    _enforce_policy(
+        request=request,
+        action="write task snooze",
+        context={
+            "kind": "write",
+            "method": "PATCH",
+            "endpoint": f"/api/tasks/{task_id}/snooze",
+            "path": ".hermes/tasks/tasks.json",
+        },
+    )
+    until = body.until
+    if body.minutes is not None:
+        if body.minutes < 1:
+            raise HTTPException(status_code=422, detail="minutes must be >= 1")
+        until = snooze_until_from_minutes(body.minutes)
+    if not until:
+        raise HTTPException(status_code=422, detail="until or minutes required")
+    store = _get_tasks_store(ws)
+    try:
+        task = store.snooze(task_id, until)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Task not found") from None
+    run_id = _run_id_from_request(request)
+    _emit_task_event(
+        run_id=run_id,
+        decision="snooze",
+        task_id=task_id,
+        outcome="snoozed",
+        extra={"until": until},
+    )
+    return task.to_dict()
+
+
+@router.delete("/tasks/{task_id}")
+def delete_task(
+    task_id: str,
+    request: Request,
+    policy_confirmation_token: str | None = None,
+    ws: Path = Depends(workspace_dep),
+) -> dict[str, Any]:
+    _enforce_policy(
+        request=request,
+        action="write task delete",
+        context={
+            "kind": "write",
+            "method": "DELETE",
+            "endpoint": f"/api/tasks/{task_id}",
+            "path": ".hermes/tasks/tasks.json",
+        },
+        confirmation_token=policy_confirmation_token,
+    )
+    store = _get_tasks_store(ws)
+    if not store.delete(task_id):
+        raise HTTPException(status_code=404, detail="Task not found")
+    run_id = _run_id_from_request(request)
+    _emit_task_event(run_id=run_id, decision="delete", task_id=task_id, outcome="deleted")
+    return {"deleted": True, "taskId": task_id}
+
+
+class ResearchQueryBody(BaseModel):
+    query: str = Field(..., description="Research search query")
+    maxResults: int = Field(default=5, ge=1, le=20)
+    timeoutSeconds: float = Field(default=15.0, ge=1.0, le=120.0)
+    requireVerification: bool = True
+    policyConfirmationToken: str | None = Field(
+        default=None,
+        description="Required when policy check returns requiresConfirmation",
+    )
+
+    @field_validator("query")
+    @classmethod
+    def _validate_query(cls, v: str) -> str:
+        s = v.strip()
+        if not s:
+            raise ValueError("query must not be empty")
+        if len(s) > 2000:
+            raise ValueError("query exceeds maximum length of 2000 characters")
+        return s
+
+
+@router.post("/research/query")
+async def research_query(body: ResearchQueryBody, request: Request) -> dict[str, Any]:
+    """Run gated research pipeline with structured citations."""
+    action = "network research query"
+    _enforce_policy(
+        request=request,
+        action=action,
+        context={"kind": "network", "endpoint": "/api/research/query"},
+        confirmation_token=body.policyConfirmationToken,
+    )
+    run_id = _run_id_from_request(request)
+    pipeline = get_research_pipeline()
+    query = ResearchQuery(
+        query=body.query,
+        max_results=body.maxResults,
+        timeout_seconds=body.timeoutSeconds,
+        require_verification=body.requireVerification,
+    )
+    try:
+        result = await pipeline.run(
+            query,
+            run_id=run_id,
+            skip_policy=True,
+        )
+    except Exception as exc:
+        emit_event(
+            run_id=run_id,
+            layer="research",
+            decision="query",
+            reason=str(exc)[:200],
+            inputs_redacted={"query": body.query[:200]},
+            outcome="failed",
+        )
+        raise HTTPException(status_code=502, detail=f"Research pipeline failed: {exc}") from exc
+    return result.to_dict()
+
+
+@router.get("/research/query/{query_id}")
+def research_query_get(query_id: str) -> dict[str, Any]:
+    """Return cached research result when available."""
+    result = get_cached_result(query_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Research query not found")
+    return result.to_dict()
+
+
+class BrowserActionBody(BaseModel):
+    action: BrowserActionType
+    url: str | None = None
+    selector: str | None = None
+    value: str | None = None
+    sessionProfile: str | None = None
+    timeoutSeconds: float = Field(default=15.0, ge=1.0, le=120.0)
+    workflowId: str | None = None
+    policyConfirmationToken: str | None = Field(
+        default=None,
+        description="Required when policy check returns requiresConfirmation",
+    )
+
+    @field_validator("url", "selector", "value", "sessionProfile", mode="before")
+    @classmethod
+    def _coerce_optional_text(cls, v: Any) -> str | None:
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            raise TypeError("field must be a string")
+        s = v.strip()
+        return s or None
+
+
+@router.post("/browser/action")
+async def browser_action(
+    body: BrowserActionBody,
+    request: Request,
+    ws: Path = Depends(workspace_dep),
+) -> dict[str, Any]:
+    """Execute a gated browser driver action."""
+    action = browser_policy_action(body.action)
+    _enforce_policy(
+        request=request,
+        action=action,
+        context={
+            "kind": "browser",
+            "endpoint": "/api/browser/action",
+            "browser_action": body.action.value,
+        },
+        confirmation_token=body.policyConfirmationToken,
+    )
+    run_id = _run_id_from_request(request)
+    driver_request = BrowserActionRequest(
+        action=body.action,
+        url=body.url,
+        selector=body.selector,
+        value=body.value,
+        session_profile=body.sessionProfile,
+        timeout_seconds=body.timeoutSeconds,
+        workflow_id=body.workflowId,
+    )
+    result = await run_browser_action(
+        driver_request,
+        run_id=run_id,
+        skip_policy=True,
+        workspace_root=ws,
+    )
+    if body.workflowId and result.success:
+        try:
+            orch = _get_orchestrator(ws)
+            orch.link_browser_action(body.workflowId, result.action_id)
+            emit_event(
+                run_id=run_id,
+                layer="orchestrator",
+                decision="browser_action_linked",
+                reason=f"action_id={result.action_id}",
+                inputs_redacted={
+                    "workflowId": body.workflowId,
+                    "browserActionId": result.action_id,
+                },
+                outcome="linked",
+            )
+        except WorkflowNotFoundError:
+            pass
+    return result.to_dict()
+
+
+@router.get("/browser/action/{action_id}")
+def browser_action_get(action_id: str) -> dict[str, Any]:
+    """Return cached browser action result when available."""
+    result = get_cached_action(action_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Browser action not found")
+    return result.to_dict()
+
+
+@router.get("/browser/sessions")
+def browser_sessions(request: Request) -> dict[str, Any]:
+    """List stub browser session profiles (MVP metadata)."""
+    run_id = _run_id_from_request(request)
+    profiles = list_session_profiles()
+    emit_event(
+        run_id=run_id,
+        layer="browser",
+        decision="list_sessions",
+        reason="stub session profiles listed",
+        inputs_redacted={"count": len(profiles)},
+        outcome="success",
+    )
+    return {"sessions": [p.to_dict() for p in profiles]}
+
+
+class OrchestrationPlanBody(BaseModel):
+    task: str = Field(..., description="User message or task to plan")
+    message: str | None = Field(default=None, description="Alias for task")
+    createTask: bool = Field(
+        default=False,
+        description="Create a linked daily task when planning",
+    )
+
+    @field_validator("task")
+    @classmethod
+    def _validate_task(cls, v: str) -> str:
+        s = v.strip()
+        if not s:
+            raise ValueError("task must not be empty")
+        if len(s) > 8000:
+            raise ValueError("task exceeds maximum length of 8000 characters")
+        return s
+
+
+class OrchestrationExecuteBody(BaseModel):
+    stepId: str | None = Field(default=None, description="Specific step id, or next pending")
+    policyConfirmationToken: str | None = Field(
+        default=None,
+        description="Required when a step needs network/browser confirmation",
+    )
+
+
+@router.post("/orchestration/plan")
+def orchestration_plan(
+    body: OrchestrationPlanBody,
+    request: Request,
+    ws: Path = Depends(workspace_dep),
+) -> dict[str, Any]:
+    run_id = _run_id_from_request(request)
+    task = body.task.strip()
+    orch = _get_orchestrator(ws)
+    workflow = orch.plan(task, run_id=run_id)
+    should_create_task = body.createTask or workflow.mode == OrchestratorMode.SESSION
+    if should_create_task:
+        task_id = create_task_for_workflow(ws, workflow, run_id=run_id)
+        if task_id:
+            workflow.task_id = task_id
+            orch._store.save(workflow)
+            _emit_task_event(
+                run_id=run_id,
+                decision="task_linked",
+                task_id=task_id,
+                outcome="created",
+                extra={"workflowId": workflow.workflow_id},
+            )
+    return workflow.to_dict()
+
+
+@router.get("/orchestration")
+def orchestration_list(ws: Path = Depends(workspace_dep)) -> dict[str, Any]:
+    orch = _get_orchestrator(ws)
+    workflows = orch.list_workflows()
+    return {"workflows": [w.to_dict() for w in workflows]}
+
+
+@router.get("/orchestration/{workflow_id}")
+def orchestration_get(workflow_id: str, ws: Path = Depends(workspace_dep)) -> dict[str, Any]:
+    orch = _get_orchestrator(ws)
+    try:
+        return orch.get(workflow_id).to_dict()
+    except WorkflowNotFoundError:
+        raise HTTPException(status_code=404, detail="Workflow not found") from None
+
+
+@router.post("/orchestration/{workflow_id}/execute")
+def orchestration_execute(
+    workflow_id: str,
+    body: OrchestrationExecuteBody,
+    request: Request,
+    ws: Path = Depends(workspace_dep),
+) -> dict[str, Any]:
+    run_id = _run_id_from_request(request)
+    orch = _get_orchestrator(ws)
+    try:
+        workflow = orch.execute_step(
+            workflow_id,
+            step_id=body.stepId,
+            run_id=run_id,
+            confirmation_token=body.policyConfirmationToken,
+        )
+    except WorkflowNotFoundError:
+        raise HTTPException(status_code=404, detail="Workflow not found") from None
+    except WorkflowPausedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if workflow.status == StepStatus.COMPLETED:
+        on_workflow_completed(ws, workflow, run_id=run_id)
+        mark_linked_task_done(ws, workflow, task_id=workflow.task_id)
+    return workflow.to_dict()
+
+
+@router.post("/orchestration/{workflow_id}/pause")
+def orchestration_pause(
+    workflow_id: str,
+    request: Request,
+    ws: Path = Depends(workspace_dep),
+) -> dict[str, Any]:
+    run_id = _run_id_from_request(request)
+    orch = _get_orchestrator(ws)
+    try:
+        return orch.pause(workflow_id, run_id=run_id).to_dict()
+    except WorkflowNotFoundError:
+        raise HTTPException(status_code=404, detail="Workflow not found") from None
+
+
+@router.post("/orchestration/{workflow_id}/resume")
+def orchestration_resume(
+    workflow_id: str,
+    request: Request,
+    ws: Path = Depends(workspace_dep),
+) -> dict[str, Any]:
+    run_id = _run_id_from_request(request)
+    orch = _get_orchestrator(ws)
+    try:
+        return orch.resume(workflow_id, run_id=run_id).to_dict()
+    except WorkflowNotFoundError:
+        raise HTTPException(status_code=404, detail="Workflow not found") from None
 
 
 def _file_entry(p: Path, workspace: Path) -> dict[str, Any]:
@@ -385,12 +1240,20 @@ async def get_logs_errors() -> PlainTextResponse:
 
 class CommandBody(BaseModel):
     command: str
+    policyConfirmationToken: str | None = Field(
+        default=None,
+        description="Required when policy check returns requiresConfirmation",
+    )
 
 
 class ChatSendBody(BaseModel):
     """One-shot Hermes message via ``hermes -z`` (no shell, argv list only)."""
 
     message: str = Field(..., description="UTF-8 message passed to Hermes -z")
+    policyConfirmationToken: str | None = Field(
+        default=None,
+        description="Required for network actions (web-send)",
+    )
 
     @field_validator("message")
     @classmethod
@@ -459,6 +1322,10 @@ class BrowserAnalyzeBody(BaseModel):
     selection: str = Field(default="", description="Selected text, if any")
     visibleText: str = Field(..., description="Visible page text extracted by the extension")
     mode: str = Field(default="workhorse", description="auto, fast, workhorse, smart, or backup")
+    policyConfirmationToken: str | None = Field(
+        default=None,
+        description="Required before browser analysis runs",
+    )
 
     @field_validator("url", "title", "selection", mode="before")
     @classmethod
@@ -749,11 +1616,24 @@ async def chat_session_transcript(session_id: str) -> dict[str, Any]:
 @router.post("/chat/session-send")
 async def chat_session_send(
     body: ChatSessionSendBody,
+    request: Request,
     ws: Path = Depends(workspace_dep),
 ) -> dict[str, Any]:
     """Run ``hermes chat -q`` with optional ``--resume``; parse ``session_id`` from stdout."""
+    _enforce_chat_message_policy(
+        request=request,
+        message=body.message,
+        endpoint="/api/chat/session-send",
+    )
+    run_id = _run_id_from_request(request)
+    orchestrator_mode = _emit_route_decision(
+        run_id=run_id,
+        message=body.message,
+        endpoint="/api/chat/session-send",
+    )
     timeout_sec = get_chat_timeout_seconds()
     argv = _hermes_session_chat_argv(body.message, body.sessionId)
+    _emit_hermes_spawn(run_id=run_id, argv=argv, endpoint="/api/chat/session-send")
     started = time.monotonic()
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -761,7 +1641,7 @@ async def chat_session_send(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             cwd=str(ws),
-            env={**os.environ, "LC_ALL": "C.UTF-8"},
+            env=_hermes_subprocess_env(run_id),
         )
     except OSError as exc:
         raise _hermes_unavailable_error(exc) from exc
@@ -781,6 +1661,7 @@ async def chat_session_send(
             "exitCode": 124,
             "durationMs": elapsed_ms,
             "mode": "hermes-session",
+            "orchestratorMode": orchestrator_mode.value,
             "parseWarning": None,
         }
 
@@ -799,24 +1680,40 @@ async def chat_session_send(
         "exitCode": code,
         "durationMs": elapsed_ms,
         "mode": "hermes-session",
+        "orchestratorMode": orchestrator_mode.value,
         "parseWarning": parse_warn,
     }
 
 
 @router.post("/chat/send")
-async def chat_send(body: ChatSendBody, ws: Path = Depends(workspace_dep)) -> dict[str, Any]:
+async def chat_send(
+    body: ChatSendBody,
+    request: Request,
+    ws: Path = Depends(workspace_dep),
+) -> dict[str, Any]:
     """Run ``hermes -z <message>`` from the workspace root; no user-controlled flags."""
+    _enforce_chat_message_policy(
+        request=request,
+        message=body.message,
+        endpoint="/api/chat/send",
+    )
+    run_id = _run_id_from_request(request)
+    orchestrator_mode = _emit_route_decision(
+        run_id=run_id,
+        message=body.message,
+        endpoint="/api/chat/send",
+    )
     timeout_sec = get_chat_timeout_seconds()
+    argv = [_hermes_bin(), "-z", body.message]
+    _emit_hermes_spawn(run_id=run_id, argv=argv, endpoint="/api/chat/send")
     started = time.monotonic()
     try:
         proc = await asyncio.create_subprocess_exec(
-            _hermes_bin(),
-            "-z",
-            body.message,
+            *argv,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             cwd=str(ws),
-            env={**os.environ, "LC_ALL": "C.UTF-8"},
+            env=_hermes_subprocess_env(run_id),
         )
     except OSError as exc:
         raise _hermes_unavailable_error(exc) from exc
@@ -835,6 +1732,7 @@ async def chat_send(body: ChatSendBody, ws: Path = Depends(workspace_dep)) -> di
             "exitCode": 124,
             "durationMs": elapsed_ms,
             "mode": "oneshot",
+            "orchestratorMode": orchestrator_mode.value,
         }
 
     text = out.decode("utf-8", errors="replace")
@@ -850,25 +1748,75 @@ async def chat_send(body: ChatSendBody, ws: Path = Depends(workspace_dep)) -> di
         "exitCode": code,
         "durationMs": elapsed_ms,
         "mode": "oneshot",
+        "orchestratorMode": orchestrator_mode.value,
     }
 
 
 @router.post("/chat/web-send")
-async def chat_web_send(body: ChatSendBody, ws: Path = Depends(workspace_dep)) -> dict[str, Any]:
+async def chat_web_send(
+    body: ChatSendBody,
+    request: Request,
+    ws: Path = Depends(workspace_dep),
+) -> dict[str, Any]:
     """Run `hermes -t web -z <message>` for internet/search-focused requests."""
+    action = "network web-send"
+    _enforce_policy(
+        request=request,
+        action=action,
+        context={"endpoint": "/api/chat/web-send", "kind": "network"},
+        confirmation_token=body.policyConfirmationToken,
+    )
+    run_id = _run_id_from_request(request)
+    orchestrator_mode = _emit_route_decision(
+        run_id=run_id,
+        message=body.message,
+        endpoint="/api/chat/web-send",
+    )
+    research_query_id: str | None = None
+    if orchestrator_mode == OrchestratorMode.WEB:
+        try:
+            research_result = await get_research_pipeline().run(
+                ResearchQuery(
+                    query=body.message,
+                    max_results=5,
+                    timeout_seconds=min(15.0, float(get_chat_timeout_seconds())),
+                ),
+                run_id=run_id,
+                skip_policy=True,
+            )
+            research_query_id = research_result.query_id
+            emit_event(
+                run_id=run_id,
+                layer="orchestrator",
+                decision="research_linked",
+                reason=f"web-send research query_id={research_query_id}",
+                inputs_redacted={
+                    "endpoint": "/api/chat/web-send",
+                    "queryId": research_query_id,
+                    "query": body.message[:200],
+                },
+                outcome="linked",
+            )
+        except Exception as exc:
+            emit_event(
+                run_id=run_id,
+                layer="research",
+                decision="web_send_preflight",
+                reason=str(exc)[:200],
+                inputs_redacted={"query": body.message[:200]},
+                outcome="failed",
+            )
     timeout_sec = get_chat_timeout_seconds()
+    argv = [_hermes_bin(), "-t", "web", "-z", body.message]
+    _emit_hermes_spawn(run_id=run_id, argv=argv, endpoint="/api/chat/web-send")
     started = time.monotonic()
     try:
         proc = await asyncio.create_subprocess_exec(
-            _hermes_bin(),
-            "-t",
-            "web",
-            "-z",
-            body.message,
+            *argv,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             cwd=str(ws),
-            env={**os.environ, "LC_ALL": "C.UTF-8"},
+            env=_hermes_subprocess_env(run_id),
         )
     except OSError as exc:
         raise _hermes_unavailable_error(exc) from exc
@@ -884,6 +1832,8 @@ async def chat_web_send(body: ChatSendBody, ws: Path = Depends(workspace_dep)) -
             "exitCode": 124,
             "durationMs": elapsed_ms,
             "mode": "web-oneshot",
+            "orchestratorMode": orchestrator_mode.value,
+            "researchQueryId": research_query_id,
         }
 
     text = out.decode("utf-8", errors="replace")
@@ -898,32 +1848,47 @@ async def chat_web_send(body: ChatSendBody, ws: Path = Depends(workspace_dep)) -
         "exitCode": code,
         "durationMs": elapsed_ms,
         "mode": "web-oneshot",
+        "orchestratorMode": orchestrator_mode.value,
+        "researchQueryId": research_query_id,
     }
 
 
 @router.post("/browser/analyze")
 async def browser_analyze(
     body: BrowserAnalyzeBody,
+    request: Request,
     ws: Path = Depends(workspace_dep),
 ) -> dict[str, Any]:
     """Analyze compact browser page context with a free-model Hermes one-shot."""
+    action = "browser analyze"
+    _enforce_policy(
+        request=request,
+        action=action,
+        context={"endpoint": "/api/browser/analyze", "kind": "browser"},
+        confirmation_token=body.policyConfirmationToken,
+    )
     timeout_sec = get_chat_timeout_seconds()
     model = _browser_model_for(body.mode)
     prompt = _browser_analysis_prompt(body)
+    argv = [
+        _hermes_bin(),
+        "-z",
+        prompt,
+        "--provider",
+        "openrouter",
+        "--model",
+        model,
+    ]
+    run_id = _run_id_from_request(request)
+    _emit_hermes_spawn(run_id=run_id, argv=argv, endpoint="/api/browser/analyze")
     started = time.monotonic()
     try:
         proc = await asyncio.create_subprocess_exec(
-            _hermes_bin(),
-            "-z",
-            prompt,
-            "--provider",
-            "openrouter",
-            "--model",
-            model,
+            *argv,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             cwd=str(ws),
-            env={**os.environ, "LC_ALL": "C.UTF-8"},
+            env=_hermes_subprocess_env(run_id),
         )
     except OSError as exc:
         raise _hermes_unavailable_error(exc) from exc
@@ -965,8 +1930,15 @@ def commands_whitelist() -> dict[str, list[str]]:
 
 
 @router.post("/commands/run")
-async def run_whitelisted(body: CommandBody) -> dict[str, Any]:
+async def run_whitelisted(body: CommandBody, request: Request) -> dict[str, Any]:
     cmd = body.command.strip()
+    action = f"exec {cmd}"
+    _enforce_policy(
+        request=request,
+        action=action,
+        context={"endpoint": "/api/commands/run", "kind": "exec", "command": cmd},
+        confirmation_token=body.policyConfirmationToken,
+    )
     if not is_whitelisted_command(cmd):
         raise HTTPException(status_code=400, detail="Command not allowed")
     proc = await asyncio.create_subprocess_shell(

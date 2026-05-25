@@ -68,11 +68,14 @@ export type SaveBodyRequest = {
   content: string;
 };
 
+export type OrchestratorMode = "fast" | "web" | "session";
+
 export type ChatSendResponse = {
   response: string;
   exitCode: number;
   durationMs: number;
   mode: "oneshot";
+  orchestratorMode?: OrchestratorMode;
 };
 
 export type ChatWebSendResponse = {
@@ -80,6 +83,8 @@ export type ChatWebSendResponse = {
   exitCode: number;
   durationMs: number;
   mode: "web-oneshot";
+  orchestratorMode?: OrchestratorMode;
+  researchQueryId?: string | null;
 };
 
 export type ChatSessionSendResponse = {
@@ -88,6 +93,7 @@ export type ChatSessionSendResponse = {
   exitCode: number;
   durationMs: number;
   mode: "hermes-session";
+  orchestratorMode?: OrchestratorMode;
   parseWarning?: string | null;
 };
 
@@ -122,3 +128,260 @@ export const WHITELIST_SHELL_COMMANDS = {
   hermesDoctor: "hermes doctor",
   hermesPing: 'hermes -z "Say exactly: OK"',
 } as const;
+
+export type PolicyDecisionResponse = {
+  allowed: boolean;
+  risk: "read" | "write" | "exec" | "network" | "browser" | "payment";
+  requiresConfirmation: boolean;
+  reason: string;
+  confirmationToken: string | null;
+};
+
+export type PolicyHttpDetail = {
+  detail: string;
+  policy: PolicyDecisionResponse;
+  action: string;
+  confirmError?: string;
+};
+
+export type PolicyCheckRequest = {
+  action: string;
+  context?: Record<string, unknown>;
+};
+
+export type PolicyConfirmRequest = {
+  action: string;
+  token: string;
+};
+
+export type PolicyConfirmResponse = {
+  ok: string;
+  action: string;
+};
+
+export type CapabilitiesResponse = {
+  policyGate: boolean;
+  observability: boolean;
+  memoryIndex: boolean;
+  artifactsIndex: boolean;
+  contextRouter: boolean;
+  toolExecutor: boolean;
+  researchPipeline: boolean;
+  browserDriver: boolean;
+  dailyTasks: boolean;
+  orchestrator: boolean;
+};
+
+export type ActiveContextResponse = {
+  title: string;
+  summary: string;
+  keyPoints: string[];
+  recentWorkflowIds: string[];
+  recentRunIds: string[];
+  updatedAt: string;
+};
+
+export type ActiveContextUpdateRequest = {
+  title?: string;
+  summary?: string;
+  keyPoints?: string[];
+  recentWorkflowIds?: string[];
+  recentRunIds?: string[];
+  policyConfirmationToken?: string | null;
+};
+
+export type MemorySummaryResponse = {
+  title: string;
+  keyPoints: string[];
+  entryCount: number;
+  recentWorkflows: Array<{
+    workflowId: string;
+    task: string;
+    mode: OrchestratorMode;
+    status: WorkflowStepStatus;
+    runId: string | null;
+    updatedAt: string;
+  }>;
+  activeContext: ActiveContextResponse | null;
+  generatedAt: string;
+};
+
+export type ArtifactKind = "report" | "output" | "input" | "log" | "workflow";
+
+export type ArtifactRecordResponse = {
+  id: string;
+  runId: string | null;
+  workflowId: string | null;
+  path: string;
+  kind: ArtifactKind;
+  createdAt: string;
+  summary: string;
+  contentPreview?: string;
+};
+
+export type ArtifactsListResponse = {
+  artifacts: ArtifactRecordResponse[];
+};
+
+export type TaskStatus = "pending" | "in_progress" | "done" | "snoozed" | "cancelled";
+
+export type TaskPriority = "low" | "normal" | "high";
+
+export type TaskResponse = {
+  id: string;
+  title: string;
+  description: string;
+  status: TaskStatus;
+  priority: TaskPriority | null;
+  dueAt: string | null;
+  snoozedUntil: string | null;
+  createdAt: string;
+  updatedAt: string;
+  workflowId: string | null;
+  runId: string | null;
+};
+
+export type TasksListResponse = {
+  tasks: TaskResponse[];
+};
+
+export type TaskCreateRequest = {
+  title: string;
+  description?: string;
+  priority?: TaskPriority | null;
+  dueAt?: string | null;
+  workflowId?: string | null;
+  runId?: string | null;
+  policyConfirmationToken?: string | null;
+};
+
+export type TaskUpdateRequest = {
+  title?: string | null;
+  description?: string | null;
+  status?: TaskStatus | null;
+  priority?: TaskPriority | null;
+  dueAt?: string | null;
+};
+
+export type TaskSnoozeRequest = {
+  until?: string | null;
+  minutes?: number | null;
+  policyConfirmationToken?: string | null;
+};
+
+export type WorkflowStepStatus = "pending" | "running" | "paused" | "completed" | "failed";
+
+export type WorkflowStepResponse = {
+  id: string;
+  title: string;
+  action: string;
+  status: WorkflowStepStatus;
+  mode: OrchestratorMode;
+  result: string | null;
+  error: string | null;
+  policyReason: string | null;
+};
+
+export type WorkflowStateResponse = {
+  workflowId: string;
+  task: string;
+  mode: OrchestratorMode;
+  playbookMode: string;
+  routingReason: string;
+  status: WorkflowStepStatus;
+  steps: WorkflowStepResponse[];
+  runId: string | null;
+  taskId: string | null;
+  researchQueryId?: string | null;
+  browserPreflightRequired?: boolean;
+  browserActionId?: string | null;
+  paused: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type OrchestrationPlanRequest = {
+  task: string;
+  createTask?: boolean;
+};
+
+export type OrchestrationExecuteRequest = {
+  stepId?: string | null;
+  policyConfirmationToken?: string | null;
+};
+
+export type OrchestrationListResponse = {
+  workflows: WorkflowStateResponse[];
+};
+
+export type SourceTier = "primary" | "secondary" | "unknown";
+
+export type GatedReason = "paywall" | "login" | "captcha" | "blocked";
+
+export type CitationResponse = {
+  url: string;
+  title: string;
+  snippet: string;
+  fetchedAt: string;
+  sourceTier: SourceTier;
+  verified: boolean;
+};
+
+export type GatedSiteInfoResponse = {
+  domain: string;
+  reason: GatedReason;
+};
+
+export type ResearchQueryRequest = {
+  query: string;
+  maxResults?: number;
+  timeoutSeconds?: number;
+  requireVerification?: boolean;
+  policyConfirmationToken?: string | null;
+};
+
+export type ResearchResultResponse = {
+  queryId: string;
+  citations: CitationResponse[];
+  summary: string;
+  warnings: string[];
+  fallbackUsed: boolean;
+  gatedSites: GatedSiteInfoResponse[];
+};
+
+export type BrowserActionType =
+  | "navigate"
+  | "click"
+  | "fill"
+  | "snapshot"
+  | "screenshot";
+
+export type BrowserActionRequest = {
+  action: BrowserActionType;
+  url?: string | null;
+  selector?: string | null;
+  value?: string | null;
+  sessionProfile?: string | null;
+  timeoutSeconds?: number;
+  workflowId?: string | null;
+  policyConfirmationToken?: string | null;
+};
+
+export type BrowserActionResultResponse = {
+  actionId: string;
+  success: boolean;
+  snapshotText: string | null;
+  screenshotPath: string | null;
+  error: string | null;
+  durationMs: number;
+};
+
+export type BrowserSessionProfileResponse = {
+  id: string;
+  name: string;
+  userAgent: string | null;
+};
+
+export type BrowserSessionsResponse = {
+  sessions: BrowserSessionProfileResponse[];
+};
