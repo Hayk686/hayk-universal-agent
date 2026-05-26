@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ExternalLink, RefreshCw, Server } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { setApiBaseOverride, setPcProxy } from "@/lib/api/client";
-import { buildEnvApiBase, getApiBaseOverride } from "@/lib/api-base";
+import { buildEnvApiBase, getApiBaseOverride, isVercelHosted } from "@/lib/api-base";
 import {
   WORKSPACE_SETUP_STEPS,
   workspaceUnavailableMessage,
@@ -25,8 +25,13 @@ export function WorkspaceBackendGate({ mode, capabilitiesError, onRetry, loading
   function connectTunnel() {
     const trimmed = tunnelUrl.trim();
     if (!trimmed) return;
-    setApiBaseOverride(trimmed);
-    setPcProxy(false);
+    if (isVercelHosted()) {
+      setApiBaseOverride("");
+      setPcProxy(true);
+    } else {
+      setApiBaseOverride(trimmed);
+      setPcProxy(false);
+    }
     onRetry();
   }
 

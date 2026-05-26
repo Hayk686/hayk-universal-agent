@@ -43,9 +43,19 @@ function unreachableBackendMessage(): string {
       "With VITE_API_BASE_URL unset, Vite dev proxies /api to localhost:8080."
     );
   }
+  const viaProxy =
+    typeof window !== "undefined" &&
+    window.location.hostname.endsWith(".vercel.app") &&
+    !base;
+  if (viaProxy) {
+    return (
+      "Backend unreachable via Vercel proxy. Ensure FastAPI + ngrok are running, set BACKEND_URL " +
+      "on Vercel to your tunnel (https://….ngrok-free.dev), redeploy, then hard-refresh."
+    );
+  }
   return (
     `Backend unreachable at ${base}. Check VITE_API_BASE_URL, ensure FastAPI is running, ` +
-    "and add this UI origin to backend CORS_ORIGINS."
+    "and add this UI origin to backend CORS_ORIGINS. On Vercel, prefer Workspace → Use Vercel proxy."
   );
 }
 
