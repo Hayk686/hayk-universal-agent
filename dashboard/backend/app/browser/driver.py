@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
+import os
 import re
 import time
 import uuid
@@ -30,8 +32,34 @@ _ACTION_CACHE: dict[str, BrowserActionResult] = {}
 
 _DEFAULT_SESSION_PROFILES: tuple[BrowserSessionProfile, ...] = (
     BrowserSessionProfile(id="default", name="Default", user_agent=None),
-    BrowserSessionProfile(id="mobile", name="Mobile viewport (stub)", user_agent="Mobile/1.0"),
+    BrowserSessionProfile(
+        id="mobile",
+        name="Mobile (iOS Safari UA)",
+        user_agent=(
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) "
+            "AppleWebKit/605.1.15 (KHTML, like Gecko) "
+            "Version/17.4 Mobile/15E148 Safari/604.1"
+        ),
+    ),
+    BrowserSessionProfile(
+        id="desktop-firefox",
+        name="Desktop (Firefox UA)",
+        user_agent=(
+            "Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko/20100101 Firefox/125.0"
+        ),
+    ),
 )
+
+# Minimum-valid 1×1 transparent PNG. Used when no real headless browser is
+# available so the screenshot endpoint still returns a real image instead of a
+# ``.txt`` file pretending to be a screenshot. The companion sidecar JSON
+# describes what was captured (URL, timestamp, driver) so the UI can show a
+# clear "no headless renderer installed" badge.
+_FALLBACK_PNG_BASE64 = (
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4AWP4//8/AwAI/AL+XJ/q"
+    "wQAAAABJRU5ErkJggg=="
+)
+_FALLBACK_PNG_BYTES = base64.b64decode(_FALLBACK_PNG_BASE64)
 
 _TAG_RE = re.compile(r"<[^>]+>")
 _WS_RE = re.compile(r"\s+")
@@ -61,6 +89,34 @@ def _html_to_text(html: str, *, max_chars: int = 8000) -> str:
     if len(text) <= max_chars:
         return text
     return text[:max_chars].rstrip() + "\n[truncated]"
+
+
+def _format_screenshot_sidecar(
+    *, action_id: str, url: str, domain: str, page_text: str
+) -> str:
+    """JSON sidecar that documents an httpx-driver screenshot placeholder.
+
+    Stored next to the ``.png`` so consumers can tell at a glance that the
+    image is a 1×1 placeholder and what page context was captured instead.
+    """
+    import json as _json
+
+    payload = {
+        "actionId": action_id,
+        "url": url,
+        "domain": domain,
+        "driver": "httpx",
+        "kind": "placeholder",
+        "imageBytes": len(_FALLBACK_PNG_BYTES),
+        "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "pageTextPreview": page_text[:2000],
+        "hint": (
+            "Install Playwright (pip install playwright && playwright install chromium) "
+            "and set BROWSER_DRIVER=playwright in the dashboard backend env to capture "
+            "real screenshots."
+        ),
+    }
+    return _json.dumps(payload, ensure_ascii=False, indent=2)
 
 
 def _emit_browser_event(
@@ -285,24 +341,61 @@ class HttpxBrowserDriver(BrowserDriver):
 
         try:
             if request.action in (BrowserActionType.CLICK, BrowserActionType.FILL):
-                if not request.selector:
-                    raise ValueError("selector is required for click/fill")
-                raise NotImplementedError(
-                    f"{request.action.value} requires agent-browser driver; httpx MVP supports navigate/snapshot only"
+                # httpx cannot interact with a DOM. Return a structured
+                # ``success=false`` result with a 501-style error so the UI
+                # can render a "headless renderer required" badge instead of
+                # crashing the workflow.
+                missing = "selector" if not request.selector else None
+                error = (
+                    f"selector is required for {request.action.value}"
+                    if missing
+                    else (
+                        f"{request.action.value} requires a headless browser; "
+                        "install Playwright and set BROWSER_DRIVER=playwright, "
+                        "or use the browser extension popup (/api/browser/analyze)."
+                    )
                 )
-            if request.action == BrowserActionType.SCREENSHOT:
+                result = BrowserActionResult(
+                    action_id=action_id,
+                    success=False,
+                    error=error,
+                    duration_ms=int((time.monotonic() - started) * 1000),
+                )
+            elif request.action == BrowserActionType.SCREENSHOT:
                 if workspace_root is None:
                     raise ValueError("workspace root required for screenshot")
                 shot_dir = workspace_root / "output" / "browser-screenshots"
                 shot_dir.mkdir(parents=True, exist_ok=True)
-                shot_path = shot_dir / f"{action_id}.txt"
-                note = f"screenshot placeholder for {extract_url_domain(request.url) or 'current page'}"
-                shot_path.write_text(note, encoding="utf-8")
+                shot_path = shot_dir / f"{action_id}.png"
+                sidecar_path = shot_dir / f"{action_id}.json"
+                domain = extract_url_domain(request.url) or "current page"
+                page_text = ""
+                if request.url:
+                    try:
+                        page_text = await self._fetch_page_text(
+                            request.url, timeout=request.timeout_seconds
+                        )
+                    except Exception as fetch_exc:  # noqa: BLE001 — best-effort context
+                        page_text = f"[fetch failed: {fetch_exc}]"
+                shot_path.write_bytes(_FALLBACK_PNG_BYTES)
+                sidecar_path.write_text(
+                    _format_screenshot_sidecar(
+                        action_id=action_id,
+                        url=request.url or "",
+                        domain=domain,
+                        page_text=page_text,
+                    ),
+                    encoding="utf-8",
+                )
                 rel_path = str(shot_path.relative_to(workspace_root)).replace("\\", "/")
                 result = BrowserActionResult(
                     action_id=action_id,
                     success=True,
-                    snapshot_text=note,
+                    snapshot_text=(
+                        f"1×1 placeholder image for {domain}. "
+                        "Install Playwright and set BROWSER_DRIVER=playwright "
+                        "for full-page screenshots."
+                    ),
                     screenshot_path=rel_path,
                     duration_ms=int((time.monotonic() - started) * 1000),
                 )
@@ -397,13 +490,147 @@ async def run_browser_action(
         return result
 
 
+class PlaywrightBrowserDriver(BrowserDriver):
+    """Headless Chromium driver via Playwright (optional dependency).
+
+    Activated when ``BROWSER_DRIVER=playwright`` and the ``playwright``
+    package + chromium browser are installed. Supports navigate/snapshot/
+    click/fill/screenshot for real. Falls back to ``HttpxBrowserDriver``
+    in ``get_browser_driver`` if the import fails.
+    """
+
+    def __init__(self) -> None:
+        # Lazy-imported in execute() — Playwright is optional.
+        self._available: bool | None = None
+
+    def _check_available(self) -> bool:
+        if self._available is not None:
+            return self._available
+        try:
+            import playwright.async_api  # noqa: F401
+            self._available = True
+        except ImportError:
+            self._available = False
+        return self._available
+
+    async def execute(
+        self,
+        request: BrowserActionRequest,
+        *,
+        run_id: str = "",
+        workspace_root: Path | None = None,
+    ) -> BrowserActionResult:
+        started = time.monotonic()
+        action_id = str(uuid.uuid4())
+        if not self._check_available():
+            result = BrowserActionResult(
+                action_id=action_id,
+                success=False,
+                error=(
+                    "playwright is not installed. Run "
+                    "`pip install playwright && playwright install chromium`, "
+                    "or unset BROWSER_DRIVER to use the httpx fallback."
+                ),
+                duration_ms=int((time.monotonic() - started) * 1000),
+            )
+            cache_action_result(result)
+            return result
+
+        from playwright.async_api import async_playwright  # type: ignore
+
+        try:
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=True)
+                try:
+                    context = await browser.new_context()
+                    page = await context.new_page()
+                    if request.url:
+                        await page.goto(request.url, timeout=request.timeout_seconds * 1000)
+                    if request.action == BrowserActionType.CLICK:
+                        if not request.selector:
+                            raise ValueError("selector required for click")
+                        await page.click(request.selector, timeout=request.timeout_seconds * 1000)
+                    elif request.action == BrowserActionType.FILL:
+                        if not request.selector:
+                            raise ValueError("selector required for fill")
+                        await page.fill(
+                            request.selector,
+                            request.value or "",
+                            timeout=request.timeout_seconds * 1000,
+                        )
+                    snapshot_text: str | None = None
+                    screenshot_rel: str | None = None
+                    if request.action == BrowserActionType.SCREENSHOT:
+                        if workspace_root is None:
+                            raise ValueError("workspace root required for screenshot")
+                        shot_dir = workspace_root / "output" / "browser-screenshots"
+                        shot_dir.mkdir(parents=True, exist_ok=True)
+                        shot_path = shot_dir / f"{action_id}.png"
+                        await page.screenshot(path=str(shot_path), full_page=True)
+                        screenshot_rel = str(
+                            shot_path.relative_to(workspace_root)
+                        ).replace("\\", "/")
+                    if request.action in (
+                        BrowserActionType.NAVIGATE,
+                        BrowserActionType.SNAPSHOT,
+                        BrowserActionType.CLICK,
+                        BrowserActionType.FILL,
+                    ):
+                        body = await page.content()
+                        snapshot_text = _html_to_text(body)
+                    result = BrowserActionResult(
+                        action_id=action_id,
+                        success=True,
+                        snapshot_text=snapshot_text,
+                        screenshot_path=screenshot_rel,
+                        duration_ms=int((time.monotonic() - started) * 1000),
+                    )
+                finally:
+                    await browser.close()
+        except Exception as exc:  # noqa: BLE001
+            result = BrowserActionResult(
+                action_id=action_id,
+                success=False,
+                error=str(exc)[:500],
+                duration_ms=int((time.monotonic() - started) * 1000),
+            )
+
+        cache_action_result(result)
+        _emit_browser_event(
+            run_id=run_id,
+            decision=request.action.value,
+            reason=result.error or "playwright driver completed",
+            action_type=request.action,
+            url=request.url,
+            outcome="success" if result.success else "failed",
+            extra={
+                "actionId": result.action_id,
+                **({"path": result.screenshot_path} if result.screenshot_path else {}),
+            },
+        )
+        return result
+
+
 _default_driver: BrowserDriver | None = None
 
 
 def get_browser_driver() -> BrowserDriver:
     global _default_driver
     if _default_driver is None:
-        _default_driver = HttpxBrowserDriver()
+        choice = os.environ.get("BROWSER_DRIVER", "").strip().lower()
+        if choice == "playwright":
+            pw = PlaywrightBrowserDriver()
+            if pw._check_available():
+                _default_driver = pw
+                logger.info("browser driver: playwright")
+            else:
+                logger.warning(
+                    "BROWSER_DRIVER=playwright but playwright is not installed; "
+                    "falling back to httpx driver"
+                )
+                _default_driver = HttpxBrowserDriver()
+        else:
+            _default_driver = HttpxBrowserDriver()
     return _default_driver
 
 

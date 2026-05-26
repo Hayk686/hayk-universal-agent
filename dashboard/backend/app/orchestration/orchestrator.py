@@ -215,14 +215,28 @@ class Orchestrator:
         self._store.save(wf)
 
         try:
-            if step.action.startswith("orchestrate") and self._step_runner:
-                step.result = self._step_runner(wf, step)
-            elif step.action.startswith("orchestrate") and wf.browser_preflight_required:
-                step.result = self._run_browser_preflight(wf, run_id=run_id)
-            elif step.action.startswith("orchestrate") and wf.mode == OrchestratorMode.WEB:
-                step.result = self._run_web_research_preflight(wf, run_id=run_id)
-            elif step.action == "policy pre-check":
+            if step.action == "policy pre-check":
                 step.result = decision.reason
+            elif step.action.startswith("orchestrate") and wf.browser_preflight_required:
+                # Browser-heavy: surface preflight metadata then let runner (if any)
+                # finalize the step. UI must invoke /api/browser/action with a
+                # confirmation token; the orchestrator never auto-executes browser
+                # interactions because they require user gesture context.
+                preflight = self._run_browser_preflight(wf, run_id=run_id)
+                runner_result = self._step_runner(wf, step) if self._step_runner else None
+                step.result = "\n".join(p for p in (preflight, runner_result) if p)
+            elif step.action.startswith("orchestrate") and wf.mode == OrchestratorMode.WEB:
+                preflight = self._run_web_research_preflight(wf, run_id=run_id)
+                runner_result = self._step_runner(wf, step) if self._step_runner else None
+                step.result = "\n".join(p for p in (preflight, runner_result) if p)
+            elif step.action.startswith("orchestrate") and self._step_runner:
+                step.result = self._step_runner(wf, step)
+            elif step.action.startswith("orchestrate"):
+                # No runner injected (tests, offline). Mark as pending-runner so UI
+                # knows nothing actually ran.
+                step.result = (
+                    f"step {step.id}: no step runner attached; orchestrator only tracked state"
+                )
             else:
                 step.result = f"step {step.id} completed"
             step.status = StepStatus.COMPLETED

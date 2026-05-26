@@ -54,12 +54,35 @@ module.exports = async function handler(req, res) {
       });
       if (!gate.allowed) return;
 
-      await putContentFile(
+      // The GitHub Contents API returns the new commit + the previous file
+      // SHA. The previous SHA is the "backup" pointer — anyone holding it can
+      // restore via ``GET /api/agents-md?ref=<sha>`` on the raw GitHub UI. We
+      // surface ``commit.sha`` as the recovery handle so the dashboard's
+      // "Saved (backup: …)" toast is informative instead of empty.
+      let previousSha = "";
+      try {
+        const existing = await getContentFile("agent-workspace/AGENTS.md");
+        previousSha = existing.sha || "";
+      } catch {
+        previousSha = "";
+      }
+      const result = await putContentFile(
         "agent-workspace/AGENTS.md",
         content,
         "Update AGENTS.md from dashboard",
       );
-      return json(res, 200, { saved: "true", backup: "" });
+      const commitSha = result?.commit?.sha || result?.content?.sha || "";
+      const backupRef = previousSha
+        ? `pre:${previousSha.slice(0, 12)}`
+        : commitSha
+          ? `commit:${commitSha.slice(0, 12)}`
+          : "github-versioned";
+      return json(res, 200, {
+        saved: "true",
+        backup: backupRef,
+        commitSha,
+        previousSha,
+      });
     } catch (error) {
       console.error("agents-md save failed", {
         message: error.message || String(error),

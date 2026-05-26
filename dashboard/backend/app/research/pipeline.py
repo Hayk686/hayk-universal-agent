@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import html
 import re
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from html.parser import HTMLParser
 from typing import Any, Callable, Protocol
 from urllib.parse import unquote
 
@@ -135,18 +137,31 @@ def ensure_research_policy_allowed(
 
 
 def build_summary(citations: list[Citation], query: str) -> str:
-    """Deterministic heuristic summary for MVP."""
+    """Heuristic, deterministic summary that surfaces the top snippets.
+
+    No LLM call — keeps the pipeline cheap and offline-safe. When citations
+    carry snippets (DDG parser now extracts them), the summary includes a
+    couple of preview sentences so the UI actually shows substantive context
+    instead of just "Found N sources".
+    """
     if not citations:
         return f"No sources found for: {query.strip()[:120]}"
     verified = sum(1 for c in citations if c.verified)
-    tiers = {c.source_tier.value for c in citations}
-    tier_note = ", ".join(sorted(tiers))
+    tiers = sorted({c.source_tier.value for c in citations})
     top = citations[0]
     title = top.title or extract_domain(top.url)
-    return (
+    header = (
         f"Found {len(citations)} source(s) ({verified} verified). "
-        f"Tiers: {tier_note}. Top: {title}."
+        f"Tiers: {', '.join(tiers)}. Top: {title}."
     )
+    previews: list[str] = []
+    for c in citations[:2]:
+        snippet = (c.snippet or "").strip()
+        if snippet:
+            previews.append(f"• {c.title or extract_domain(c.url)}: {snippet[:200]}")
+    if not previews:
+        return header
+    return header + "\n" + "\n".join(previews)
 
 
 def cache_result(result: ResearchResult) -> None:
@@ -249,35 +264,147 @@ class StubResearchPipeline(ResearchPipeline):
 
 
 _DDG_LINK_RE = re.compile(r'uddg=([^&"]+)')
+_WHITESPACE_RE = re.compile(r"\s+")
 
 
-async def default_ddg_search(query: str, *, max_results: int, timeout: float) -> list[SearchHit]:
-    """Primary search via DuckDuckGo HTML (httpx)."""
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-        resp = await client.post(
-            "https://html.duckduckgo.com/html/",
-            data={"q": query},
-            headers={"User-Agent": "HaykResearchPipeline/1.0"},
-        )
-        resp.raise_for_status()
-        text = resp.text
+def _clean_text(raw: str) -> str:
+    return _WHITESPACE_RE.sub(" ", html.unescape(raw)).strip()
+
+
+class _DDGResultParser(HTMLParser):
+    """Extract DDG HTML result blocks: url + title + snippet per hit.
+
+    DuckDuckGo HTML renders each result inside ``<div class="result ...">``
+    with an inner ``a.result__a`` (title link) and ``a.result__snippet``
+    (snippet text). We track a small state machine and pull all three pieces
+    instead of just regex-grabbing the ``uddg=`` redirect URL.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.hits: list[dict[str, str]] = []
+        self._in_result = 0
+        self._current: dict[str, str] | None = None
+        self._capture: str | None = None
+        self._buffer: list[str] = []
+
+    def _flush_capture(self) -> None:
+        if self._capture and self._current is not None:
+            text = _clean_text("".join(self._buffer))
+            if self._capture == "title" and "title" not in self._current:
+                self._current["title"] = text
+            elif self._capture == "snippet" and "snippet" not in self._current:
+                self._current["snippet"] = text
+        self._capture = None
+        self._buffer = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        cls = " " + (dict(attrs).get("class") or "") + " "
+        if tag == "div" and " result " in cls and " result--ad " not in cls:
+            self._in_result += 1
+            self._current = {}
+        if self._in_result == 0 or self._current is None:
+            return
+        if tag == "a" and " result__a " in cls:
+            href = dict(attrs).get("href") or ""
+            m = _DDG_LINK_RE.search(href)
+            url = unquote(m.group(1)) if m else href
+            self._current.setdefault("url", url)
+            self._flush_capture()
+            self._capture = "title"
+        elif tag == "a" and " result__snippet " in cls:
+            self._flush_capture()
+            self._capture = "snippet"
+        elif tag in ("div", "td") and " result__snippet " in cls:
+            self._flush_capture()
+            self._capture = "snippet"
+
+    def handle_endtag(self, tag: str) -> None:
+        if self._capture and tag in ("a", "div", "td"):
+            self._flush_capture()
+        if tag == "div" and self._in_result > 0:
+            self._in_result -= 1
+            if self._in_result == 0 and self._current is not None:
+                if self._current.get("url"):
+                    self.hits.append(self._current)
+                self._current = None
+                self._capture = None
+                self._buffer = []
+
+    def handle_data(self, data: str) -> None:
+        if self._capture is not None and self._current is not None:
+            self._buffer.append(data)
+
+
+def _parse_ddg_html(body: str) -> list[SearchHit]:
+    parser = _DDGResultParser()
+    try:
+        parser.feed(body)
+        parser.close()
+    except Exception:
+        # Fall back to regex-only extraction (URL-only) if HTML parsing chokes
+        return _parse_ddg_urls_only(body)
+
+    hits: list[SearchHit] = []
+    for entry in parser.hits:
+        url = entry.get("url", "").strip()
+        if not url:
+            continue
+        title = entry.get("title", "").strip() or extract_domain(url)
+        snippet = entry.get("snippet", "").strip()
+        if len(snippet) > 400:
+            snippet = snippet[:400].rstrip() + "…"
+        hits.append(SearchHit(url=url, title=title, snippet=snippet))
+    if hits:
+        return hits
+    return _parse_ddg_urls_only(body)
+
+
+def _parse_ddg_urls_only(body: str) -> list[SearchHit]:
+    """Last-ditch extractor when HTML parsing fails — at least surface URLs."""
     hits: list[SearchHit] = []
     seen: set[str] = set()
-    for match in _DDG_LINK_RE.finditer(text):
+    for match in _DDG_LINK_RE.finditer(body):
         raw_url = unquote(match.group(1))
         if raw_url in seen:
             continue
         seen.add(raw_url)
-        gated = detect_gated_from_url(raw_url)
-        if gated is not None:
-            continue
-        hits.append(
-            SearchHit(
-                url=raw_url,
-                title=extract_domain(raw_url),
-                snippet="",
-            )
+        hits.append(SearchHit(url=raw_url, title=extract_domain(raw_url), snippet=""))
+    return hits
+
+
+async def default_ddg_search(query: str, *, max_results: int, timeout: float) -> list[SearchHit]:
+    """Primary search via DuckDuckGo HTML.
+
+    Parses real result blocks (title + snippet + URL). ``Citation`` objects
+    therefore carry useful preview text instead of empty strings. Hits whose
+    URL fails the gated-host filter are skipped.
+    """
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        resp = await client.post(
+            "https://html.duckduckgo.com/html/",
+            data={"q": query},
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (X11; Linux x86_64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "HaykResearchPipeline/1.1 Safari/537.36"
+                ),
+                "Accept-Language": "en-US,en;q=0.9",
+            },
         )
+        resp.raise_for_status()
+        text = resp.text
+
+    hits: list[SearchHit] = []
+    seen: set[str] = set()
+    for hit in _parse_ddg_html(text):
+        if hit.url in seen:
+            continue
+        seen.add(hit.url)
+        if detect_gated_from_url(hit.url) is not None:
+            continue
+        hits.append(hit)
         if len(hits) >= max_results:
             break
     return hits

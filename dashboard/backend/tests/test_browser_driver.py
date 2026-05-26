@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 
 import pytest
 
@@ -170,3 +171,68 @@ async def test_httpx_driver_navigate_with_mock(workspace: Path, monkeypatch: pyt
     )
     assert result.success is True
     assert "Hello page" in (result.snapshot_text or "")
+
+
+@pytest.mark.asyncio
+async def test_httpx_driver_click_returns_actionable_error(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Click on httpx driver: structured ``success=false``, no exception."""
+    from app.browser.driver import HttpxBrowserDriver
+
+    set_browser_driver(HttpxBrowserDriver())
+    token = issue_confirmation_token(browser_policy_action(BrowserActionType.CLICK))
+    result = await run_browser_action(
+        BrowserActionRequest(
+            action=BrowserActionType.CLICK,
+            url="https://example.com",
+            selector="#login",
+        ),
+        run_id="run-click-httpx",
+        confirmation_token=token,
+        workspace_root=workspace,
+    )
+    assert result.success is False
+    assert result.action_id
+    error = (result.error or "").lower()
+    assert "headless" in error or "playwright" in error
+
+
+@pytest.mark.asyncio
+async def test_httpx_driver_screenshot_writes_real_png(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Screenshot endpoint must produce a real PNG, not a ``.txt`` placeholder."""
+    from app.browser.driver import HttpxBrowserDriver
+
+    class FakeResponse:
+        text = "<html><body><p>Hello</p></body></html>"
+
+        def raise_for_status(self) -> None:
+            pass
+
+    class FakeClient:
+        async def get(self, url: str) -> FakeResponse:
+            return FakeResponse()
+
+        async def aclose(self) -> None:
+            pass
+
+    set_browser_driver(HttpxBrowserDriver(client=FakeClient()))  # type: ignore[arg-type]
+    token = issue_confirmation_token(browser_policy_action(BrowserActionType.SCREENSHOT))
+    result = await run_browser_action(
+        BrowserActionRequest(
+            action=BrowserActionType.SCREENSHOT,
+            url="https://example.com",
+        ),
+        run_id="run-shot-httpx",
+        confirmation_token=token,
+        workspace_root=workspace,
+    )
+    assert result.success is True
+    assert result.screenshot_path and result.screenshot_path.endswith(".png")
+    shot_file = workspace / result.screenshot_path
+    assert shot_file.is_file()
+    assert shot_file.read_bytes().startswith(b"\x89PNG")
+    sidecar = shot_file.with_suffix(".json")
+    assert sidecar.is_file()

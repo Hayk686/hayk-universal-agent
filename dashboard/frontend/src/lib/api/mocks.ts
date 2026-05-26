@@ -27,22 +27,25 @@ export function mockHealth(): Promise<HealthResponse> {
 }
 
 export function mockStatus(): Promise<StatusResponse> {
+  // Mock payload now uses obviously-zero counters so a preview deployment
+  // cannot be mistaken for a healthy live system. Disk usage is reported as
+  // ``0`` rather than a fake "128GB free" number.
   return Promise.resolve({
-    agentName: "Hayk Agent (mock)",
+    agentName: "Hayk Agent (mock — backend unavailable)",
     workspacePath: MOCK_WORKSPACE_LABEL,
     serverTime: new Date().toISOString(),
-    agentsMdExists: true,
-    playbooksDirExists: true,
-    fileCounts: { input: 2, output: 1, reports: 3 },
+    agentsMdExists: false,
+    playbooksDirExists: false,
+    fileCounts: { input: 0, output: 0, reports: 0 },
     diskUsage: {
-      totalBytes: 256e9,
-      usedBytes: 128e9,
-      freeBytes: 128e9,
-      workspaceBytes: 12e6,
+      totalBytes: 0,
+      usedBytes: 0,
+      freeBytes: 0,
+      workspaceBytes: 0,
     },
     venv: {
-      pythonPath: ".venv/bin/python (mock)",
-      existsAndExecutable: true,
+      pythonPath: "(mock — connect FastAPI for live venv path)",
+      existsAndExecutable: false,
     },
     chatTimeoutSeconds: 300,
   });

@@ -119,6 +119,15 @@ function bumpActivity(isError: boolean) {
   writeActivity(buckets);
 }
 
+/**
+ * Build the 24-hour activity chart purely from real local-storage buckets.
+ *
+ * The previous implementation filled missing buckets with ``Math.sin(i/3)*4+6``
+ * + a periodic fake error, which made an empty dashboard look like a busy
+ * production system. We now return zeros for hours that have no recorded
+ * activity; the chart legitimately reads "no traffic" until the user sends
+ * a real message.
+ */
 export function buildChartData(buckets: ActivityBucket[]) {
   const now = Date.now();
   const points: { time: string; requests: number; errors: number }[] = [];
@@ -134,8 +143,8 @@ export function buildChartData(buckets: ActivityBucket[]) {
           : t.toLocaleTimeString(undefined, { hour: "numeric" }).replace(" ", "");
     points.push({
       time: label,
-      requests: bucket?.requests ?? Math.max(0, Math.round(Math.sin(i / 3) * 4 + 6)),
-      errors: bucket?.errors ?? (i % 11 === 0 ? 1 : 0),
+      requests: bucket?.requests ?? 0,
+      errors: bucket?.errors ?? 0,
     });
   }
   return points;
@@ -175,27 +184,60 @@ export function useChatEngine() {
 
   const chartData = useMemo(() => buildChartData(activityBuckets), [activityBuckets]);
 
+  /**
+   * Real metrics derived from local chat history + recent sessions.
+   *
+   * Previously fell back to ``totalMessages: 1247``, ``activeSessions: 7``,
+   * ``errorRate: 0.3`` with hardcoded ``+12 / -0.1%`` deltas so the dashboard
+   * never looked empty. That was misleading. Now an empty dashboard reads as
+   * zero across the board; deltas are the difference between today (24h) and
+   * yesterday (24-48h ago).
+   */
   const metrics = useMemo(() => {
     const now = Date.now();
     const dayAgo = now - 86_400_000;
-    const recent = history.filter((m) => (m.timestamp ?? now) >= dayAgo);
-    const assistantRecent = recent.filter((m) => m.role === "assistant" && m.durationMs);
-    const avgMs =
-      assistantRecent.length > 0
-        ? assistantRecent.reduce((s, m) => s + (m.durationMs ?? 0), 0) / assistantRecent.length
-        : 1100;
-    const errors = recent.filter((m) => m.role === "assistant" && m.exitCode !== 0 && m.exitCode !== undefined);
-    const errorRate = recent.length > 0 ? (errors.length / Math.max(1, recent.filter((m) => m.role === "assistant").length)) * 100 : 0.3;
+    const twoDaysAgo = now - 2 * 86_400_000;
+    const today = history.filter((m) => (m.timestamp ?? 0) >= dayAgo);
+    const yesterday = history.filter(
+      (m) => (m.timestamp ?? 0) >= twoDaysAgo && (m.timestamp ?? 0) < dayAgo,
+    );
+
+    const assistantToday = today.filter((m) => m.role === "assistant" && m.durationMs);
+    const assistantYesterday = yesterday.filter(
+      (m) => m.role === "assistant" && m.durationMs,
+    );
+    const avgMsToday =
+      assistantToday.length > 0
+        ? assistantToday.reduce((s, m) => s + (m.durationMs ?? 0), 0) / assistantToday.length
+        : 0;
+    const avgMsYesterday =
+      assistantYesterday.length > 0
+        ? assistantYesterday.reduce((s, m) => s + (m.durationMs ?? 0), 0) /
+          assistantYesterday.length
+        : 0;
+
+    function errorRateOf(slice: typeof history): number {
+      const replies = slice.filter((m) => m.role === "assistant" && m.exitCode !== undefined);
+      if (replies.length === 0) return 0;
+      const failed = replies.filter((m) => m.exitCode !== 0).length;
+      return (failed / replies.length) * 100;
+    }
+
+    const errorRateToday = errorRateOf(today);
+    const errorRateYesterday = errorRateOf(yesterday);
+    const sessionsActive = Math.max(recentSessions.length, sessionId ? 1 : 0);
 
     return {
-      totalMessages: recent.length || history.length || 1247,
-      activeSessions: Math.max(recentSessions.length, sessionId ? 1 : 0) || 7,
-      errorRate: errorRate || 0.3,
-      avgResponseSec: avgMs / 1000,
-      messagesDelta: 12,
-      sessionsDelta: recentSessions.length > 0 ? 2 : 0,
-      errorRateDelta: -0.1,
-      responseDelta: -0.2,
+      totalMessages: today.length,
+      activeSessions: sessionsActive,
+      errorRate: errorRateToday,
+      avgResponseSec: avgMsToday / 1000,
+      messagesDelta: today.length - yesterday.length,
+      // Sessions are a live count, not a 24h window — use the count itself as
+      // the delta hint when there is no historical baseline.
+      sessionsDelta: sessionsActive,
+      errorRateDelta: errorRateToday - errorRateYesterday,
+      responseDelta: (avgMsToday - avgMsYesterday) / 1000,
     };
   }, [history, recentSessions.length, sessionId]);
 

@@ -125,11 +125,37 @@ export type ChatSessionListResponse = {
 };
 
 /** Exact strings accepted by POST /api/commands/run (must match backend whitelist). */
+/**
+ * Static identifiers for the small subset of commands that are referenced
+ * from frontend code (buttons, quick actions). The authoritative whitelist
+ * lives on the backend at ``GET /api/commands/whitelist`` and may contain
+ * workspace-relative paths that this constant cannot know.
+ */
 export const WHITELIST_SHELL_COMMANDS = {
   hermesStatus: "hermes status",
   hermesDoctor: "hermes doctor",
   hermesPing: 'hermes -z "Say exactly: OK"',
+  hermesLogsSince: "hermes logs --since 1h",
+  hermesLogsErrors: "hermes logs errors",
+  pwd: "pwd",
 } as const;
+
+/** Heuristic category for a whitelisted shell command (UI grouping only). */
+export type WhitelistCommandCategory =
+  | "hermes"
+  | "logs"
+  | "filesystem"
+  | "python"
+  | "shell";
+
+export function categorizeWhitelistCommand(command: string): WhitelistCommandCategory {
+  const c = command.trim();
+  if (c.startsWith("hermes logs")) return "logs";
+  if (c.startsWith("hermes ")) return "hermes";
+  if (c.startsWith("ls ") || c.startsWith("Get-ChildItem") || c === "pwd") return "filesystem";
+  if (c.includes("python") || c.endsWith("python.exe")) return "python";
+  return "shell";
+}
 
 export type PolicyDecisionResponse = {
   allowed: boolean;

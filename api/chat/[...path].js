@@ -120,15 +120,36 @@ module.exports = async function handler(req, res) {
 
   try {
     if (route === "sessions" && req.method === "GET") {
-      return json(res, 200, { sessions: [] });
+      // Sessions live on the local Hermes runtime (state.db). The Vercel
+      // serverless layer cannot list them. Return an empty list together with
+      // an explanatory ``mode`` flag so the frontend can render "no persistent
+      // sessions in cloud mode" instead of treating it as a clean slate.
+      return json(res, 200, {
+        sessions: [],
+        mode: "vercel-cloud",
+        message:
+          "Persistent Hermes sessions live on the local Hermes runtime (state.db). " +
+          "Cloud mode is stateless; visible chat is browser-local only.",
+      });
     }
     if (/^sessions\/[^/]+\/transcript$/.test(route) && req.method === "GET") {
       const sessionId = decodeURIComponent(route.split("/")[1] || "");
-      return json(res, 200, { sessionId, title: null, messageCount: 0, messages: [] });
+      return json(res, 404, {
+        detail:
+          "Session transcripts are not available in Vercel cloud mode. " +
+          "Set BACKEND_URL (PC proxy) or VITE_API_BASE_URL to a FastAPI tunnel " +
+          "to load Hermes session exports.",
+        sessionId,
+      });
     }
     if (/^sessions\/[^/]+$/.test(route) && req.method === "DELETE") {
       const sessionId = decodeURIComponent(route.split("/")[1] || "");
-      return json(res, 200, { ok: "true", sessionId });
+      return json(res, 501, {
+        detail:
+          "Session deletion is not available in Vercel cloud mode (sessions live on the local " +
+          "Hermes runtime). Delete via local CLI: hermes sessions delete <id>.",
+        sessionId,
+      });
     }
     if (route === "send" && req.method === "POST") {
       return await send(req, res);

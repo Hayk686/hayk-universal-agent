@@ -27,6 +27,7 @@ from app.tasks.store import FileTasksStore, snooze_until_from_minutes
 from app.orchestration.models import OrchestratorMode, StepStatus
 from app.orchestration.orchestrator import Orchestrator, WorkflowNotFoundError, WorkflowPausedError
 from app.orchestration.router import route_task
+from app.orchestration.step_runner import make_default_step_runner
 from app.orchestration.workflow_store import FileWorkflowStore
 from app.policy.confirmation import verify_confirmation_token
 from app.policy.gate import PolicyDecision, classify_action
@@ -67,7 +68,10 @@ def workspace_dep() -> Path:
 
 
 def _get_orchestrator(ws: Path) -> Orchestrator:
-    return Orchestrator(FileWorkflowStore(root=ws))
+    return Orchestrator(
+        FileWorkflowStore(root=ws),
+        step_runner=make_default_step_runner(),
+    )
 
 
 def _get_memory_store(ws: Path) -> FileMemoryStore:

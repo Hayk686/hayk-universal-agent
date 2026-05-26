@@ -15,20 +15,21 @@ module.exports = async function handler(req, res) {
   }
 
   const route = routeName(req);
-  cors(res);
-  res.setHeader("Content-Type", "text/plain; charset=utf-8");
-  if (route === "hermes") {
-    return res.status(200).send([
-      "Vercel cloud mode",
-      "Hermes local subprocess logs are not available in serverless mode.",
-      "Use Vercel deployment logs for /api/* function diagnostics.",
-    ].join("\n"));
+  // Vercel serverless cannot tail the local Hermes subprocess logs. Returning
+  // a friendly 200 with explanatory text used to mask the fact that the
+  // endpoint is non-functional in cloud mode; the UI then rendered a useless
+  // "logs available" panel. We now answer with 501 + clear JSON so the
+  // frontend can show a real "feature unavailable" badge.
+  if (route === "hermes" || route === "errors") {
+    return json(res, 501, {
+      detail:
+        `${route === "hermes" ? "Hermes runtime logs" : "Hermes error logs"} are not available ` +
+        "in Vercel cloud mode. Set BACKEND_URL (PC proxy) or VITE_API_BASE_URL to a FastAPI " +
+        "tunnel URL to stream live logs. Vercel function logs themselves live in the Vercel " +
+        "dashboard (Deployments → Logs).",
+      mode: "vercel-cloud",
+      route,
+    });
   }
-  if (route === "errors") {
-    return res.status(200).send([
-      "No bundled error log in Vercel cloud mode.",
-      "Open Vercel > Deployments > Logs to inspect live function errors.",
-    ].join("\n"));
-  }
-  return res.status(404).send("Log route not found");
+  return json(res, 404, { detail: "Log route not found", route });
 };

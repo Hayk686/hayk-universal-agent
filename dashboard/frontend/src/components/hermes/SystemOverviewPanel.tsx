@@ -95,9 +95,8 @@ export function SystemOverviewPanel({
         <MetricCard
           label="Total Messages"
           value={formatCount(metrics.totalMessages)}
-          sublabel="last 24h"
+          sublabel="last 24h vs prior 24h"
           delta={metrics.messagesDelta}
-          deltaSuffix="%"
           icon={MessageSquare}
         />
         <MetricCard
