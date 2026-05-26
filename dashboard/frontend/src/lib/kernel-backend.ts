@@ -63,14 +63,15 @@ export function formatKernelApiError(message: string, apiPath?: string): string 
   if (/NOT_FOUND|not found|404/i.test(message) && /page could not be found/i.test(message)) {
     if (!apiBase()) {
       return (
-        `API не найден${pathHint}. На Vercel cloud нет kernel-маршрутов. ` +
-        "Задайте VITE_API_BASE_URL на HTTPS-туннель FastAPI на ПК и сделайте redeploy."
+        `API не найден${pathHint}. Проверьте BACKEND_URL на Vercel (ngrok URL), redeploy, Ctrl+F5. ` +
+        "Запросы kernel идут через /api/pc/… — FastAPI и ngrok должны быть запущены на ПК."
       );
     }
   }
   if (/NOT_FOUND|not found/i.test(message) && !apiBase()) {
     return (
-      `API не найден${pathHint}. Задайте VITE_API_BASE_URL на FastAPI (ПК) или запустите backend локально на :8080.`
+      `API не найден${pathHint}. На Vercel: BACKEND_URL + redeploy; на ПК: uvicorn :8000 + ngrok. ` +
+      "Обновите страницу (Ctrl+F5)."
     );
   }
   if (message.includes("HTML instead of JSON")) {

@@ -14,6 +14,14 @@
       "destination": "/api/health"
     },
     {
+      "source": "/api/pc/:path*",
+      "destination": "/api/pc-route?path=:path*"
+    },
+    {
+      "source": "/api/pc",
+      "destination": "/api/pc-route"
+    },
+    {
       "source": "/((?!api/).*)",
       "destination": "/index.html"
     }

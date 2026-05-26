@@ -67,31 +67,27 @@ export function isVercelHosted(): boolean {
 export function shouldRouteViaPcProxy(): boolean {
   if (usePcProxy()) return true;
   if (!isVercelHosted()) return false;
-  return Boolean(buildEnvApiBase()) && !getApiBaseOverride();
+  if (getApiBaseOverride()) return false;
+  return true;
 }
 
 /**
- * On Vercel, route through /api/pc when a PC backend is configured.
- * Clears stale direct-ngrok overrides that break session-send POST.
+ * On Vercel, prefer /api/pc proxy (BACKEND_URL). Clears stale direct-ngrok overrides.
  */
 export function initApiRoutingForHost(): void {
   if (!isVercelHosted()) return;
-  const envBase = buildEnvApiBase();
-  if (!envBase) return;
 
   const override = getApiBaseOverride();
-  if (!override) return;
-
-  try {
-    const host = new URL(override).host;
-    if (host !== window.location.host) {
+  if (override) {
+    try {
+      if (new URL(override).host !== window.location.host) {
+        clearApiBaseOverride();
+      }
+    } catch {
       clearApiBaseOverride();
-      setPcProxy(true);
     }
-  } catch {
-    clearApiBaseOverride();
-    setPcProxy(true);
   }
+  setPcProxy(true);
 }
 
 /** Resolved API origin: browser override → Vite env → "" (same-origin). */
